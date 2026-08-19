@@ -1,0 +1,31 @@
+{
+  "python.defaultInterpreterPath": "C:\\Python314\\python.exe",
+  "python.analysis.extraPaths": ["${workspaceFolder}/src"],
+  "python.analysis.typeCheckingMode": "basic",
+
+  "files.encoding": "utf8",
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true,
+    "python/": true,
+    "**/*.db-shm": true,
+    "**/*.db-wal": true
+  },
+
+  "search.exclude": {
+    "python/": true,
+    "models/**/*.gguf": true,
+    "**/__pycache__": true
+  },
+
+  "[python]": {
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+    "editor.formatOnSave": false
+  },
+
+  "_설명": "python.defaultInterpreterPath는 현재 개발 환경(C:\\Python314) 기준입니다. 다른 컴퓨터에서 열면 이 값을 실제 인터프리터 경로로 바꿔주세요 — 나중에 프로젝트 전용 venv를 만들면 그 경로로 갱신할 것."
+}

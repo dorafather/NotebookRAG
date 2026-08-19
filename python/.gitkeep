@@ -1,0 +1,5 @@
+이 폴더는 배포 시 파이썬 런타임(python.exe + site-packages)이 통째로 들어갈 위치입니다.
+네이티브 확장(llama-cpp-python, sqlite-vec)이 PyInstaller 단일 exe화에
+까다로울 수 있어(260자 경로 문제 등 실제로 겪음), 우선 "파이썬 런타임 동봉"
+방식을 기본안으로 잡았습니다. PyInstaller 단일exe 실험이 성공하면 이 폴더
+자체가 불필요해질 수 있습니다 — 그 경우 이 README만 남기고 정리하세요.

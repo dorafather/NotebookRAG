@@ -1,0 +1,45 @@
+# ── 비밀값 (절대 커밋 금지) ──────────────────────────────────────────────────
+.env
+config/settings.json
+!config/settings.json.template
+
+# ── 개인 색인 데이터 (사용자마다 다름, 커밋 대상 아님) ───────────────────────
+rag_index.db
+rag_index_b.db
+rag_index.db-shm
+rag_index.db-wal
+rag_index_b.db-shm
+rag_index_b.db-wal
+rag_index.npz
+rag_index.active
+rag_index_b.active
+.ragignore
+
+# ── 대용량 바이너리 (배포 스크립트가 별도로 받아오는 것들, git엔 안 올림) ────
+python/*
+!python/.gitkeep
+models/*.gguf
+!models/.gitkeep
+
+# ── 빌드 산출물 ──────────────────────────────────────────────────────────────
+bin/*.exe
+build/
+dist/
+
+# ── 파이썬 표준 ──────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# ── 테스트/스크래치 산출물 (개발 원본에서 옮겨오지 않게 주의) ────────────────
+test_*.py
+*.bak-*
+_e2e_scratch*/
+*.log
+
+# ── OS/에디터 잡동사니 ────────────────────────────────────────────────────────
+Thumbs.db
+.DS_Store
+*.swp

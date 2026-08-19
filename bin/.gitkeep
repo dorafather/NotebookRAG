@@ -1,0 +1,7 @@
+이 폴더는 실행파일/런처가 들어갈 위치입니다. 계획된 3개 프로세스:
+  - notebookrag.exe   (백그라운드 색인 + HTTP 서빙, 한 프로세스로 합침)
+  - mcp_bridge.exe     (MCP stdio 서버, Claude Code가 직접 spawn — 독립 프로세스 필수)
+  - tray.exe           (트레이 아이콘 앱, notebookrag.exe의 생명주기를 관리)
+
+"파이썬 런타임 동봉" 방식이면 이 exe들은 실제로는
+"..\python\python.exe ..\src\notebookrag_main.py" 등을 실행하는 얇은 런처입니다.

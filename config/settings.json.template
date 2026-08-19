@@ -1,0 +1,19 @@
+{
+  "_설명": "이 파일은 템플릿입니다. 실제 값을 채운 사본(settings.json)은 %APPDATA%\\NotebookRAG\\ 에 저장되며, 이 config\\ 폴더(설치 경로)에는 절대 실제 값을 두지 않습니다 — 개발용 .env에 실제 API 키가 평문으로 있던 것과 같은 실수를 배포판에서 반복하지 않기 위함입니다.",
+
+  "RAG_DOCS_DIR": "",
+  "_RAG_DOCS_DIR_설명": "색인할 문서 폴더 경로. 콤마로 여러 개 지정 가능 (예: C:/Users/이름/Documents,D:/작업문서). 최초 실행 시 트레이 앱 설정 화면에서 사용자가 입력.",
+
+  "RAG_EMBED_MODEL": "bge-m3",
+  "RAG_EMBED_MODEL_PATH": "",
+  "_RAG_EMBED_MODEL_PATH_설명": "bge-m3 GGUF 파일 경로. 배포판은 models\\ 폴더에 이 파일을 동봉하므로 보통 설치 경로 기준 상대경로로 런처가 자동 설정. 사용자가 이미 Ollama로 bge-m3를 받아둔 경우 그 경로를 재사용할 수도 있음(선택).",
+
+  "RAG_EMBED_WORKERS": 4,
+
+  "ANTHROPIC_API_KEY": "",
+  "_ANTHROPIC_API_KEY_설명": "선택 사항. MCP 전용 사용(Claude Code 등에서 doc_search로만 검색)이라면 비워둬도 됩니다 — 원문 청크 반환 경로는 API 키가 필요 없습니다. 카카오톡 같은 채널 연동으로 rag-ra가 직접 문장 답변을 만들게 하려면 입력하세요.",
+
+  "RAG_HTTP_HOST": "127.0.0.1",
+  "RAG_HTTP_PORT": 8420,
+  "_RAG_HTTP_PORT_설명": "rag_serve.py(rag-ra)가 바인딩하는 로컬 HTTP 포트. 127.0.0.1에만 바인딩하며 외부 노출은 하지 않음."
+}

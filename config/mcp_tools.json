@@ -1,0 +1,18 @@
+{
+  "tools": [
+    {
+      "name": "doc_search",
+      "transport": "http",
+      "path": "/search",
+      "description": "사용자가 자신의 노트북 문서, 내부 규정, 정책, 매뉴얼의 내용을 물으면 호출합니다. '내부문서'라는 단어가 없어도 문서 내용에 대한 질문이면 호출하세요.",
+      "params": {
+        "query": {
+          "type": "string",
+          "description": "검색할 질문. 자연어 그대로 전달",
+          "required": true
+        }
+      },
+      "response_format": "raw_chunks"
+    }
+  ]
+}
