@@ -1,6 +1,8 @@
 # NotebookRAG
 
-![NotebookRAG](assets/NotebookRAG.png)
+<p align="center">
+  <img src="assets/NotebookRAG.png" width="150" alt="NotebookRAG">
+</p>
 
 내 컴퓨터 안의 문서를 로컬에서 검색하고, Claude Code 등 MCP를 지원하는 AI 도구에서 자연어로 질문할 수 있게 해주는 Windows용 개인 문서 검색 도구입니다.
 
@@ -12,7 +14,9 @@
 
 트레이 아이콘을 클릭하면 뜨는 상태 창입니다 — 색인 진행 상황, 디렉토리/DB 파일 수 비교, CPU·메모리 사용량을 실시간으로 보여줍니다.
 
-![상태정보 화면](assets/screenshot.jpg)
+<p align="center">
+  <img src="assets/screenshot.jpg" width="500" alt="상태정보 화면">
+</p>
 
 ---
 
