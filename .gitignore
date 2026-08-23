@@ -1,6 +1,6 @@
 # ── 비밀값 (절대 커밋 금지) ──────────────────────────────────────────────────
 .env
-config/settings.json
+settings.json
 !config/settings.json.template
 
 # ── 개인 색인 데이터 (사용자마다 다름, 커밋 대상 아님) ───────────────────────
@@ -14,6 +14,9 @@ rag_index.npz
 rag_index.active
 rag_index_b.active
 .ragignore
+indexer_config.json
+indexer_status.json
+bak_db/
 
 # ── 대용량 바이너리 (배포 스크립트가 별도로 받아오는 것들, git엔 안 올림) ────
 python/*
@@ -22,9 +25,27 @@ models/*.gguf
 !models/.gitkeep
 
 # ── 빌드 산출물 ──────────────────────────────────────────────────────────────
+# bin/<name>/ (PyInstaller --onedir 산출 exe+_internal) 및 bin/config/(config/
+# 폴더를 배포용으로 복사한 사본, 재생성 가능 — 패키징 시 config/*를 여기로
+# 복사하는 과정이 필요함, 아직 스크립트화 안 됨)는 전부 재생성 가능하므로 미커밋
 bin/*.exe
+bin/*/
 build/
 dist/
+*.spec
+
+# 설치 프로그램 산출물 (build_installer.ps1로 재생성 가능, 실제 배포는
+# GitHub Releases로 — 저장소에는 .iss/빌드 스크립트만 커밋)
+installer/output/
+installer/staging/
+
+# tray-src(C++/MFC) 빌드 산출물 — build.bat로 재생성 가능
+tray-src/tray.exe
+tray-src/tray.exe.manifest
+*.obj
+*.pdb
+*.res
+*.ilk
 
 # ── 파이썬 표준 ──────────────────────────────────────────────────────────────
 __pycache__/
@@ -38,6 +59,10 @@ test_*.py
 *.bak-*
 _e2e_scratch*/
 *.log
+
+# ── 내부 개발 기록 (공개 저장소 부적합 — 별도 보관) ──────────────────────────
+README_RELEASE.md
+업무지침_*.md
 
 # ── OS/에디터 잡동사니 ────────────────────────────────────────────────────────
 Thumbs.db

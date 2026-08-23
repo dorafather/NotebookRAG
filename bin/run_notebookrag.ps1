@@ -1,13 +1,8 @@
-# run_rag_serve.ps1 — rag_serve (NotebookRAG HTTP)
-# .bat 버전은 인코딩(REM 주석/한글 경로) 문제로 반복 오작동하여 PowerShell로 교체.
-# 이 프로젝트의 기존 런처 관례(pm2-home.ps1 등)와도 더 일관됨.
-#
-# [DEPRECATED, 티켓 C-0] 검색+색인기가 notebookrag_main.py로 통합되면서
-# run_notebookrag.ps1로 대체됨. 이 파일은 rag_serve.py 단독 실행(개발용
-# 하위호환, /reindex 등 프리픽스 없는 옛 경로)에만 여전히 유효하므로 지우지
-# 않고 남겨둠 — 평소엔 run_notebookrag.ps1을 쓸 것.
+# run_notebookrag.ps1 — notebookrag_main (NotebookRAG 통합 HTTP: 검색 /rag/*, 색인기 /indexer/*, /health)
+# [티켓 C-0] run_rag_serve.ps1을 대체 — rag_serve.py 단독 대신 검색+색인기를
+# 한 프로세스(RAG_HTTP_PORT 하나)로 통합한 notebookrag_main.py를 띄운다.
 
-$Host.UI.RawUI.WindowTitle = "rag_serve (NotebookRAG HTTP)"
+$Host.UI.RawUI.WindowTitle = "notebookrag (NotebookRAG HTTP)"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 $env:PYTHONIOENCODING = "utf-8"
@@ -23,7 +18,7 @@ $env:RAG_DATA_DIR = "C:\changwoon\개인자료\DSL\pm2-list\6. rag-ra"
 $srcDir = Join-Path (Split-Path $PSScriptRoot -Parent) "src"
 Push-Location $srcDir
 try {
-    & "C:\Python314\python.exe" rag_serve.py
+    & "C:\Python314\python.exe" notebookrag_main.py
 }
 finally {
     Pop-Location

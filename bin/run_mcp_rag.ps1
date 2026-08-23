@@ -7,7 +7,7 @@
 # 하위호환, /reindex 등 프리픽스 없는 옛 경로)에만 여전히 유효하므로 지우지
 # 않고 남겨둠 — 평소엔 run_notebookrag.ps1을 쓸 것.
 
-$Host.UI.RawUI.WindowTitle = "rag_serve (NotebookRAG HTTP)"
+$Host.UI.RawUI.WindowTitle = "mcp_rag (NotebookRAG HTTP)"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 $env:PYTHONIOENCODING = "utf-8"
@@ -23,7 +23,7 @@ $env:RAG_DATA_DIR = "C:\changwoon\개인자료\DSL\pm2-list\6. rag-ra"
 $srcDir = Join-Path (Split-Path $PSScriptRoot -Parent) "src"
 Push-Location $srcDir
 try {
-    & "C:\Python314\python.exe" rag_serve.py
+    & "C:\Python314\python.exe" mcp_rag.py
 }
 finally {
     Pop-Location

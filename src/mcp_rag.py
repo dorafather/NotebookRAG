@@ -47,8 +47,16 @@ import mcp.types as types
 from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
 
-BASE_DIR    = Path(__file__).parent
-CONFIG_FILE = Path(os.getenv("MCP_TOOLS_FILE", BASE_DIR / "mcp_tools.json"))
+# 배포 레이아웃: bin/mcp-rag/mcp-rag.exe ↔ config/mcp_tools.json (형제 폴더)
+# 개발 레이아웃: src/mcp_rag.py ↔ config/mcp_tools.json (형제 폴더)
+# PyInstaller로 얼어붙힌(frozen) 실행 시 __file__ 기준 경로 해석이 개발
+# 모드와 달라지므로, 두 경우 모두 "실행파일/스크립트가 있는 위치의 부모 밑
+# config/"를 보도록 통일한다.
+if getattr(sys, "frozen", False):
+    APP_DIR = Path(sys.executable).parent
+else:
+    APP_DIR = Path(__file__).parent
+CONFIG_FILE = Path(os.getenv("MCP_TOOLS_FILE", APP_DIR.parent / "config" / "mcp_tools.json"))
 NATS_SERVER = os.getenv("NATS_SERVER", "nats://127.0.0.1:4222")
 # rag_serve.py와 이름·기본값이 반드시 일치해야 하는 암묵적 계약 (모듈 docstring 참고)
 RAG_HTTP_HOST = os.getenv("RAG_HTTP_HOST", "127.0.0.1")

@@ -1,0 +1,51 @@
+#include "../src/resource.h"
+#include <afxres.h>
+
+IDI_TRAY_ICON ICON "notebookrag.ico"
+
+// [티켓 F/G] 컨트롤 텍스트(라벨/버튼 캡션 등)는 한글이라 .rc 파일 인코딩
+// 문제(rc.exe가 시스템 코드페이지를 기대해 UTF-8 소스에서 깨지는 사례가
+// 이 프로젝트에서 반복됨)를 피하려고 전부 빈 문자열로 두고, 코드
+// (DialogSkeleton.cpp, /utf-8 빌드)에서 SetWindowTextW로 채운다.
+IDD_MAIN_DIALOG DIALOGEX 0, 0, 300, 322
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "NotebookRAG"
+FONT 9, "MS Shell Dlg", 0, 0, 0x1
+BEGIN
+    CONTROL         "", IDC_TAB_MAIN, "SysTabControl32", 0x0, 7, 7, 286, 308
+
+    // ── 탭 1: 상태정보 (탭 컨트롤 안쪽 영역에 겹쳐서 배치, 코드로 show/hide) ──
+    LTEXT           "", IDC_STATUS_CONN, 20, 32, 260, 24
+    LTEXT           "", IDC_STATUS_MODEL_LABEL, 20, 64, 55, 10
+    LTEXT           "", IDC_STATUS_MODEL, 78, 64, 202, 26
+    LTEXT           "", IDC_STATUS_MCP_LABEL, 20, 94, 55, 10
+    LTEXT           "", IDC_STATUS_MCP, 78, 94, 202, 10
+    LTEXT           "", IDC_STATUS_INDEX_LABEL, 20, 110, 55, 10
+    LTEXT           "", IDC_STATUS_INDEX, 78, 110, 202, 74
+    CONTROL         "", IDC_PROGRESS_OVERALL, "msctls_progress32", WS_BORDER, 78, 188, 202, 10
+    CONTROL         "", IDC_PROGRESS_FILE, "msctls_progress32", WS_BORDER, 78, 202, 202, 10
+    LTEXT           "", IDC_STATUS_FOLDERS_LABEL, 20, 218, 55, 10
+    LTEXT           "", IDC_STATUS_FOLDERS, 78, 218, 202, 20
+    LTEXT           "", IDC_STATUS_DISK_LABEL, 20, 240, 55, 10
+    LTEXT           "", IDC_STATUS_DISK, 78, 240, 202, 10
+    PUSHBUTTON      "", IDC_BTN_WARNINGS, 20, 258, 260, 15
+    PUSHBUTTON      "", IDC_BTN_PAUSE_RESUME, 20, 280, 110, 16
+
+    // ── 탭 2: 설정 (같은 영역, 시작 시 숨김) ──
+    LISTBOX         IDC_LIST_FOLDERS, 20, 32, 260, 96, LBS_NOTIFY | WS_VSCROLL | WS_BORDER | WS_TABSTOP
+    PUSHBUTTON      "", IDC_BTN_ADD_FOLDER, 20, 132, 88, 15
+    PUSHBUTTON      "", IDC_BTN_REMOVE_FOLDER, 112, 132, 62, 15
+    PUSHBUTTON      "", IDC_BTN_EDIT_RULES, 178, 132, 62, 15
+    CONTROL         "", IDC_CHECK_AUTOSTART, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 20, 156, 240, 12
+END
+
+IDD_RULES_DIALOG DIALOGEX 0, 0, 260, 180
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "NotebookRAG"
+FONT 9, "MS Shell Dlg", 0, 0, 0x1
+BEGIN
+    EDITTEXT        IDC_EDIT_RULES_TEXT, 7, 7, 246, 132,
+                    ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | WS_VSCROLL | WS_BORDER
+    DEFPUSHBUTTON   "", IDOK, 118, 147, 60, 16
+    PUSHBUTTON      "", IDCANCEL, 183, 147, 60, 16
+END

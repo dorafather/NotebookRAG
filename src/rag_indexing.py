@@ -34,13 +34,18 @@ v4 변경 (노트북 실사용 규모 대응): [FILTER] .ragignore, [CATEGORY] �
 
 설정 (.env 또는 settings.json → 환경변수로 주입):
   RAG_DOCS_DIR=<색인할 문서 루트, 절대경로. 콤마(,)로 여러 개 지정 가능>
-  RAG_EMBED_WORKERS=4
+  RAG_EMBED_WORKERS=4    (embed() 호출 큐잉 동시성 — CPU 코어 점유와는 무관, 아래 참고)
+  RAG_EMBED_THREADS=<llama.cpp 내부 스레드 수. 미설정 시 코어수//2(최소 1).
+               실제 CPU 점유를 결정하는 값은 이거다 — RAG_EMBED_WORKERS가
+               아님(그건 몇 개의 embed() 호출을 동시에 큐잉하느냐일 뿐이고,
+               실제 계산은 _MODEL_LOCK으로 항상 직렬화된다)>
   ANTHROPIC_API_KEY=... (MCP 전용 모드에서는 불필요 — rag_serve.py 참고)
   RAG_EMBED_MODEL=bge-m3
   RAG_EMBED_MODEL_PATH=<bge-m3 GGUF blob 경로>
-  RAG_DATA_DIR=<색인 DB(rag_index.db) 저장 위치. 배포판에서는 %APPDATA%
-               쪽을 가리키도록 런처가 설정 — 개발 중엔 미설정 시 이 파일과
-               같은 디렉터리를 기본값으로 사용>
+  RAG_DATA_DIR=<색인 DB(rag_index.db) 저장 위치를 강제로 지정(선택, 하위호환용).
+               미설정 시 app_paths.get_app_data_dir()가 자동 결정 —
+               exe(frozen)면 %APPDATA%/NotebookRAG, 개발 모드면 이 파일과
+               같은 디렉터리(src/)>
 
 .ragignore 예시 (각 RAG_DOCS_DIR 루트 바로 아래에 개별 생성):
   # 주석은 # 으로 시작
@@ -57,6 +62,7 @@ v4 변경 (노트북 실사용 규모 대응): [FILTER] .ragignore, [CATEGORY] �
 from __future__ import annotations
 
 import fnmatch
+import gc
 import hashlib
 import os
 import sqlite3
@@ -69,6 +75,10 @@ from pathlib import Path
 import numpy as np
 from llama_cpp import Llama
 from dotenv import load_dotenv
+
+from app_paths import get_app_data_dir, load_settings_json, load_indexer_config, is_frozen, get_install_dir
+
+load_settings_json()  # load_dotenv()보다 먼저 호출 (우선순위: 환경변수 > .env > settings.json)
 load_dotenv()
 
 try:
@@ -80,16 +90,35 @@ except ImportError:
 # ── 설정 ─────────────────────────────────────────────────────────────────────
 
 BASE_DIR    = Path(__file__).parent
-DATA_DIR    = Path(os.getenv("RAG_DATA_DIR", str(BASE_DIR)))
+DATA_DIR    = get_app_data_dir()
 CACHE_FILE  = DATA_DIR / "rag_index.npz"
 CACHE_DB    = DATA_DIR / "rag_index.db"
 EMBED_MODEL = os.getenv("RAG_EMBED_MODEL", "bge-m3")
-_DEFAULT_EMBED_MODEL_PATH = (
-    Path(os.path.expandvars("%USERPROFILE%")) / ".ollama" / "models" / "blobs" /
-    "sha256-daec91ffb5dd0c27411bd71f29932917c49cf529a641d0168496c3a501e3062c"
-)
+def _default_embed_model_path() -> Path:
+    """[티켓 C-1 선결 과제] Ollama blob 기본값은 "개발자 컴퓨터에 이미 Ollama로
+    bge-m3를 받아둔 상태"를 전제한 dev 전용 값 — 일반 사용자 배포판(exe)엔
+    Ollama 자체가 없으므로 얼어붙은(frozen) 상태에서는 설치 폴더 안의
+    models/bge-m3.gguf를 기본값으로 삼는다(모델 자동 다운로드는 별도
+    인스톨러 티켓 — 이번 티켓은 그 파일이 수동으로 그 자리에 있다고 가정)."""
+    if is_frozen():
+        return get_install_dir() / "models" / "bge-m3.gguf"
+    return (Path(os.path.expandvars("%USERPROFILE%")) / ".ollama" / "models" / "blobs" /
+            "sha256-daec91ffb5dd0c27411bd71f29932917c49cf529a641d0168496c3a501e3062c")
+
+
+_DEFAULT_EMBED_MODEL_PATH = _default_embed_model_path()
 EMBED_MODEL_PATH = Path(os.getenv("RAG_EMBED_MODEL_PATH", str(_DEFAULT_EMBED_MODEL_PATH)))
 EMBED_WORKERS = int(os.getenv("RAG_EMBED_WORKERS", "4"))
+# [성능 튜닝] RAG_EMBED_WORKERS와는 별개다 — WORKERS는 "몇 개의 embed() 호출을
+# 동시에 큐잉하느냐"만 조절하고(실제 계산은 _MODEL_LOCK으로 어차피 직렬화됨),
+# CPU 코어 점유는 이 값(llama.cpp 내부 스레드 수)이 결정한다. 예전엔
+# os.cpu_count()로 고정돼 있어서 WORKERS를 1로 낮춰도 임베딩 한 번마다 모든
+# 코어를 썼다 — NotebookRAG는 상시 백그라운드 서비스라 절반(//2)에서
+# 한 번 더 낮춰 코어의 1/4(최소 1)을 기본값으로 삼는다(사용자 실측: //2로도
+# 작업관리자 CPU%가 50%대 — 상시 백그라운드 서비스는 그보다 더 존재감이
+# 옅어야 한다는 피드백 반영, 목표 25%대).
+_DEFAULT_EMBED_THREADS = max(1, (os.cpu_count() or 4) // 4)
+EMBED_THREADS = int(os.getenv("RAG_EMBED_THREADS", str(_DEFAULT_EMBED_THREADS)))
 if "nomic" in EMBED_MODEL:
     PREFIX_DOC, PREFIX_QUERY = "search_document: ", "search_query: "
 else:
@@ -104,9 +133,32 @@ SUPPORTED   = (".md", ".pdf", ".docx", ".pptx")
 
 # ── [MULTI] 문서 루트 다중 지정 ──────────────────────────────────────────────
 
-def _parse_docs_dirs() -> list[Path]:
-    raw = os.getenv("RAG_DOCS_DIR", str(BASE_DIR / "docs"))
-    return [Path(p.strip()) for p in raw.split(",") if p.strip()]
+def _resolve_docs_dirs(explicit: list[Path] | None = None) -> list[Path]:
+    """[티켓 B 선결 과제] scan_files()가 이 함수를 매 회차 다시 호출하므로
+    트레이 앱이 프로세스 재시작 없이 추가/삭제한 폴더가 다음 색인 루프
+    회차부터 반영된다. 우선순위: 명시적 인자(indexer_serve.py의 색인 루프가
+    indexer_config.json 값을 직접 읽어 넘김) > RAG_DOCS_DIR 환경변수(dev/CLI
+    하위호환) > indexer_config.json(둘 다 없을 때만) > 기본값(이 파일 옆 docs/).
+
+    [티켓 E] 온보딩 폴더(설치 폴더/onboarding/)는 위 우선순위와 무관하게
+    항상 마지막에 덧붙인다 — indexer_config.json(사용자가 /folders로 편집
+    가능한 목록)에는 절대 안 들어가므로, 트레이 앱에서 사용자가 자기 폴더를
+    전부 지워도 "NotebookRAG 안녕" 온보딩 문서는 계속 검색 대상에 남는다
+    (오늘 확정한 "계속 남기자" 결정 — 사용설명서/FAQ 역할까지 겸함)."""
+    if explicit is not None:
+        dirs = explicit
+    else:
+        raw_env = os.getenv("RAG_DOCS_DIR")
+        if raw_env:
+            dirs = [Path(p.strip()) for p in raw_env.split(",") if p.strip()]
+        else:
+            configured = load_indexer_config().get("docs_dirs", [])
+            dirs = [Path(p) for p in configured] if configured else [BASE_DIR / "docs"]
+
+    onboarding = get_install_dir() / "onboarding"
+    if onboarding.is_dir() and onboarding not in dirs:
+        dirs = dirs + [onboarding]
+    return dirs
 
 def _make_dir_labels(dirs: list[Path]) -> dict[str, Path]:
     labels: dict[str, Path] = {}
@@ -122,7 +174,7 @@ def _make_dir_labels(dirs: list[Path]) -> dict[str, Path]:
         labels[label] = d
     return labels
 
-DOCS_DIRS  = _parse_docs_dirs()
+DOCS_DIRS  = _resolve_docs_dirs()
 DIR_LABELS = _make_dir_labels(DOCS_DIRS)
 
 def resolve_path(rel: str) -> Path:
@@ -226,7 +278,16 @@ def extract_file_chunks(f: Path, rel: str) -> list[dict]:
 
 # ── [INC-1]+[FILTER] 파일별 지문 스캔 ────────────────────────────────────────
 
-def scan_files() -> dict[str, tuple[int, int]]:
+def scan_files(docs_dirs: list[Path] | None = None) -> dict[str, tuple[int, int]]:
+    """[티켓 B] 매 호출마다 DOCS_DIRS/DIR_LABELS를 다시 계산한다(모듈 임포트
+    시점의 상수가 아니라) — 상시 색인 루프에서 폴더 추가/삭제가 재시작 없이
+    반영되게 하는 핵심 지점. resolve_path()는 이 호출 직후에만 유효하다는
+    기존 호출 순서(scan_files() → 같은 회차 안에서 resolve_path() 사용)를
+    그대로 전제한다."""
+    global DOCS_DIRS, DIR_LABELS
+    DOCS_DIRS = _resolve_docs_dirs(docs_dirs)
+    DIR_LABELS = _make_dir_labels(DOCS_DIRS)
+
     out = {}
     skipped = 0
     any_dir_found = False
@@ -292,6 +353,15 @@ _MODEL_LOAD_LOCK = threading.Lock()
 _MODEL: Llama | None = None
 
 
+class ModelNotReadyError(RuntimeError):
+    """[티켓 D 선결 과제] 모델 파일이 아직 없음(최초 실행 시 자동 다운로드
+    진행 중 등) — 호출부가 이 예외를 잡아 "모델 준비 중"류의 정상적인
+    응답(4xx/5xx 중 하나, 크래시 아님)으로 바꿔야 한다. 예전에는 여기서
+    sys.exit()을 불렀는데, 상시 서버(notebookrag_main.py) 안에서는 그게
+    이 요청 하나만이 아니라 프로세스 전체(모든 API, /health 포함)를
+    죽이는 치명적인 문제였다."""
+
+
 def _get_model() -> Llama:
     global _MODEL
     if _MODEL is not None:
@@ -299,16 +369,24 @@ def _get_model() -> Llama:
     with _MODEL_LOAD_LOCK:
         if _MODEL is None:
             if not EMBED_MODEL_PATH.exists():
-                sys.exit(f"오류: 임베딩 모델 GGUF 파일을 찾을 수 없습니다: "
-                         f"{EMBED_MODEL_PATH}\n"
-                         f"  .env의 RAG_EMBED_MODEL_PATH를 확인하거나, "
-                         f"Ollama가 bge-m3를 받아뒀는지(`ollama list`) 확인하세요.")
+                raise ModelNotReadyError(str(EMBED_MODEL_PATH))
             print(f"[임베딩] llama-cpp-python 모델 로드 중: {EMBED_MODEL_PATH}")
             t0 = time.time()
+            # [버그 수정 — 사용자 실측(95% CPU, 스레드 99개)으로 발견] n_threads만
+            # 지정하고 n_threads_batch를 안 주면 llama-cpp-python이
+            # n_threads_batch를 자기 내부 기본값(multiprocessing.cpu_count() —
+            # 전체 코어)으로 따로 정한다(llama_cpp/llama.py:
+            # "self.n_threads_batch = n_threads_batch or multiprocessing.cpu_count()").
+            # 임베딩(텍스트 조각 하나를 벡터화)은 llama.cpp 내부적으로 배치
+            # 연산(batch/prompt eval)으로 처리되므로, 실제 CPU 점유를 결정하는
+            # 건 n_threads(생성용)가 아니라 n_threads_batch다 — EMBED_THREADS를
+            # 코어의 절반으로 낮췄는데도 실제로는 전체 코어를 계속 쓰고 있던
+            # 원인이 이거였다. 둘 다 EMBED_THREADS로 맞춘다.
             _MODEL = Llama(
                 model_path=str(EMBED_MODEL_PATH),
                 embedding=True,
-                n_threads=os.cpu_count() or 4,
+                n_threads=EMBED_THREADS,
+                n_threads_batch=EMBED_THREADS,
                 verbose=False,
             )
             print(f"[임베딩] 모델 로드 완료 ({time.time() - t0:.1f}초)")
@@ -335,10 +413,16 @@ def _embed_one(text: str) -> list[float] | None:
     return None
 
 
+def _eta_seconds(done: int, total: int, elapsed: float) -> float:
+    """indexer_state.IndexerState.to_dict()도 동일한 공식을 재사용한다 —
+    ETA 계산 로직을 두 곳에 따로 두지 않기 위함."""
+    rate = done / elapsed if elapsed > 0 else 0
+    return (total - done) / rate if rate > 0 else 0
+
+
 def _print_progress(label: str, done: int, total: int, t0: float) -> None:
     elapsed = time.time() - t0
-    rate = done / elapsed if elapsed > 0 else 0
-    eta_sec = (total - done) / rate if rate > 0 else 0
+    eta_sec = _eta_seconds(done, total, elapsed)
     print(f"    {label}: {done:,}/{total:,} ({done/total:.1%}) — "
           f"{elapsed/60:.1f}분 경과, 예상 잔여 약 {eta_sec/60:.1f}분")
 
@@ -384,7 +468,13 @@ def embed(texts: list[str], label: str = "", workers: int = 1) -> np.ndarray:
 
 
 def embed_chunks(chunks: list[dict], workers: int = 1,
-                 label: str = "") -> tuple[list[dict], np.ndarray]:
+                 label: str = "", on_progress=None) -> tuple[list[dict], np.ndarray]:
+    """on_progress(done, total)는 label과 무관하게(레이블이 없어도) 호출된다 —
+    [버그 수정] 예전엔 상시 색인 루프가 파일 하나를 embed_chunks()에 넘긴 뒤
+    끝날 때까지 진행률(state.set_progress)이 (0, N)에 고정돼서, 대용량
+    파일(청크 수백~수천 개) 처리 중엔 /indexer/status가 몇 분씩 멈춰있는
+    것처럼 보였다(사용자 보고: "청킹 작업이 멈춰 있음"). _should_report와
+    같은 3초 간격 게이트를 공유해 락 경합 없이 주기적으로 갱신한다."""
     if not chunks:
         return [], np.zeros((0, 0), dtype=np.float32)
     texts = [PREFIX_DOC + c["text"] for c in chunks]
@@ -396,8 +486,11 @@ def embed_chunks(chunks: list[dict], workers: int = 1,
         last_print = [t0]
         for i, t in enumerate(texts):
             results[i] = _embed_one(t)
-            if label and _should_report(last_print, i + 1, n):
-                _print_progress(label, i + 1, n, t0)
+            if _should_report(last_print, i + 1, n):
+                if label:
+                    _print_progress(label, i + 1, n, t0)
+                if on_progress:
+                    on_progress(i + 1, n)
     else:
         last_print = [t0]
         done = 0
@@ -407,8 +500,11 @@ def embed_chunks(chunks: list[dict], workers: int = 1,
                 i = futures[fut]
                 results[i] = fut.result()
                 done += 1
-                if label and _should_report(last_print, done, n):
-                    _print_progress(label, done, n, t0)
+                if _should_report(last_print, done, n):
+                    if label:
+                        _print_progress(label, done, n, t0)
+                    if on_progress:
+                        on_progress(done, n)
 
     ok_chunks, ok_vecs = [], []
     for c, v in zip(chunks, results):
@@ -585,6 +681,45 @@ def _finalize_index(conn: sqlite3.Connection, total_count: int,
     return chunks, search
 
 
+def get_embed_dim() -> int:
+    """[상태정보확장] 활성 색인 DB의 meta 테이블에서 임베딩 차원만 가볍게
+    조회한다 — RagRA 인스턴스를 안 거치고 별도 커넥션을 열었다가 바로
+    닫으므로 /model/status 같은 자주 폴링되는 엔드포인트에서 불러도 부담이
+    적다."""
+    active_gen = _read_active_gen(CACHE_DB)
+    db_path = _db_path_for_gen(CACHE_DB, active_gen)
+    if not db_path.exists():
+        return 0
+    with _DB_LOCK:
+        conn = _open_db(db_path)
+        try:
+            _ensure_base_schema(conn)
+            meta = _read_meta(conn)
+        finally:
+            conn.close()
+    return int(meta["dim"]) if "dim" in meta else 0
+
+
+def get_file_meta_count() -> int:
+    """[DB저장파일수] 활성 색인 DB의 file_meta 테이블 행 수(= DB에 영속
+    저장된 고유 파일 개수)를 가볍게 조회한다 — get_embed_dim()과 동일한
+    패턴(별도 커넥션 열고 바로 닫음). 감시 폴더의 실제 파일 개수
+    (scan_files() 결과, IndexerState.디렉토리총파일수)와 나란히 비교하면
+    "색인 안 됐거나 실패한 파일이 있는지"를 한눈에 알 수 있다."""
+    active_gen = _read_active_gen(CACHE_DB)
+    db_path = _db_path_for_gen(CACHE_DB, active_gen)
+    if not db_path.exists():
+        return 0
+    with _DB_LOCK:
+        conn = _open_db(db_path)
+        try:
+            _ensure_base_schema(conn)
+            count = conn.execute("SELECT COUNT(*) FROM file_meta").fetchone()[0]
+        finally:
+            conn.close()
+    return int(count)
+
+
 def open_existing_index():
     active_gen = _read_active_gen(CACHE_DB)
     db_path = _db_path_for_gen(CACHE_DB, active_gen)
@@ -605,8 +740,19 @@ def open_existing_index():
 
 # ── [INC-1] 증분 색인 ────────────────────────────────────────────────────────
 
-def build_index(force: bool = False):
-    current = scan_files()
+def build_index(force: bool = False, docs_dirs: list[Path] | None = None,
+                 state=None, running: threading.Event | None = None):
+    """[티켓 B] state(IndexerState)/running(threading.Event)은 상시 색인
+    루프(indexer_serve.py)에서만 넘겨준다 — 둘 다 optional이라 CLI 단독
+    실행(`python rag_indexing.py --reindex`)은 기존과 동일하게 동작한다."""
+    if state is not None:
+        state.set_phase("scanning")
+    current = scan_files(docs_dirs)
+    if state is not None:
+        # [DB저장파일수 비교용] phase(idle/processing 등)와 무관하게 항상
+        # 최신 값을 유지해야 하므로 start_round()의 _reset_locked()가 안
+        # 건드리는 별도 필드에 저장한다(회차 진행 상태와 독립적인 상시 정보).
+        state.set_dir_total(len(current))
 
     with _DB_LOCK:
         active_gen = _read_active_gen(CACHE_DB)
@@ -629,6 +775,23 @@ def build_index(force: bool = False):
         old_model = meta.get("embed_model", "")
         dim = int(meta["dim"]) if "dim" in meta else 0
         old_files = _read_file_meta(conn)
+
+        # [긴급 안전장치 — 2026-08-21 실제 데이터 유실 사고 재발 방지] 스캔
+        # 결과가 완전히 비어있는데 기존에 색인된 파일이 있었다면, 정상적인
+        # "문서가 다 사라짐"이 아니라 감시 폴더 설정을 잘못 읽었거나(경쟁
+        # 상태 등) 폴더가 일시적으로 접근 불가능한 상황일 가능성이 훨씬
+        # 크다. 이 경우 아래 removed/_delete_sources 로직이 기존 임베딩
+        # 전체(수백 MB)를 지워버리는 실제 사고가 있었다 — 통신 구조를
+        # HTTP로 바꿔도 원인이 다른 경로(폴더 일시 접근 불가 등)일 수 있어
+        # 이중 방어로 계속 유지한다. force=True(명시적 전체 재색인 요청)는
+        # 사용자가 의도한 것이므로 이 안전장치를 적용하지 않는다.
+        if not force and not current and old_files:
+            log_msg = f"스캔 결과가 완전히 비어있음(기존 색인 {len(old_files)}건) — 삭제를 건너뜁니다"
+            print(f"[색인] ⚠️ 경고: {log_msg}")
+            if state is not None:
+                state.add_warning("스캔 결과 비정상 — 삭제 안전장치 발동, 이번 회차 건너뜀")
+            total_count = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+            return _finalize_index(conn, total_count, db_path, target_gen)
 
         model_changed = old_model != EMBED_MODEL
         if model_changed and old_files:
@@ -667,44 +830,107 @@ def build_index(force: bool = False):
             total_new_chunks = 0
             cats: dict[str, int] = {}
 
+            if state is not None:
+                state.start_round(total_files, len(reuse_files), len(dup_of))
+
             for i, rel in enumerate(files_to_embed, 1):
+                if running is not None and not running.is_set():
+                    if state is not None:
+                        state.set_phase("paused")
+                    running.wait()  # 일시정지는 다음 파일 처리 시작 시점에 반영
+                    if state is not None:
+                        state.set_phase("processing")
+
                 fname = Path(rel).name
                 print(f"[색인] [{i:,}/{total_files:,}] {fname} 처리 중")
 
-                file_chunks = extract_file_chunks(resolve_path(rel), rel)
-                ok_chunks, file_matrix = [], np.zeros((0, 0), dtype=np.float32)
-                if file_chunks:
-                    if not warmed_up:
-                        print("[색인] 임베딩 모델 워밍업 시작...")
-                        embed(["워밍업"], label="워밍업")
-                        print("[색인] 워밍업 완료 — 임베딩 모델 응답 확인됨")
-                        warmed_up = True
-                    ok_chunks, file_matrix = embed_chunks(
-                        file_chunks, workers=EMBED_WORKERS, label=f"    {fname}")
+                # [메모리 누수 완화 — 2026-08-21 사용자와 확인] python-docx/
+                # python-pptx가 내부적으로 쓰는 lxml 트리는 부모-자식 양방향
+                # 참조라 순환 참조가 잘 생기는데, 파이썬의 순환 참조 수거기가
+                # 자동 임계값 기준으로만 돌다 보니 파일을 빠르게 계속 열고
+                # 닫으면 수거 속도가 처리 속도를 못 따라가서 프로세스 메모리가
+                # 계속 쌓이는 게 실측됨(파일당 약 7~8MB, 정체 없이 선형 증가).
+                # 동작을 바꾸는 게 아니라 정리를 더 자주 강제하는 것뿐이라
+                # 안전하다.
+                if i % 20 == 0:
+                    gc.collect()
 
-                with conn:
-                    if ok_chunks:
-                        if dim == 0:
-                            dim = file_matrix.shape[1]
-                            _ensure_vec_table(conn, dim)
-                            conn.execute("INSERT OR REPLACE INTO meta VALUES ('embed_model', ?)", (EMBED_MODEL,))
-                            conn.execute("INSERT OR REPLACE INTO meta VALUES ('dim', ?)", (str(dim),))
-                        rid0 = _next_rowid(conn)
-                        for j, c in enumerate(ok_chunks):
-                            rid = rid0 + j
-                            conn.execute(
-                                "INSERT INTO chunks (rowid, source, category, text) VALUES (?,?,?,?)",
-                                (rid, c["source"], c.get("category", "_root"), c["text"]))
-                            conn.execute(
-                                "INSERT INTO vec_items (rowid, embedding) VALUES (?,?)",
-                                (rid, np.asarray(file_matrix[j], dtype=np.float32).tobytes()))
-                        total_new_chunks += len(ok_chunks)
-                        for c in ok_chunks:
-                            cat = c.get("category", "_root")
-                            cats[cat] = cats.get(cat, 0) + 1
-                    fp = current[rel]
-                    conn.execute("INSERT OR REPLACE INTO file_meta VALUES (?,?,?)",
-                                 (rel, fp[0], fp[1]))
+                try:
+                    if state is not None:
+                        state.set_progress(fname, "extract")
+
+                    file_chunks = extract_file_chunks(resolve_path(rel), rel)
+                    ok_chunks, file_matrix = [], np.zeros((0, 0), dtype=np.float32)
+                    if file_chunks:
+                        if not warmed_up:
+                            print("[색인] 임베딩 모델 워밍업 시작...")
+                            embed(["워밍업"], label="워밍업")
+                            print("[색인] 워밍업 완료 — 임베딩 모델 응답 확인됨")
+                            warmed_up = True
+                        if state is not None:
+                            state.set_progress(fname, "embed", (0, len(file_chunks)))
+                        on_progress = (
+                            (lambda done, total: state.set_progress(fname, "embed", (done, total)))
+                            if state is not None else None)
+                        ok_chunks, file_matrix = embed_chunks(
+                            file_chunks, workers=EMBED_WORKERS, label=f"    {fname}",
+                            on_progress=on_progress)
+
+                    with conn:
+                        if ok_chunks:
+                            if dim == 0:
+                                dim = file_matrix.shape[1]
+                                _ensure_vec_table(conn, dim)
+                                conn.execute("INSERT OR REPLACE INTO meta VALUES ('embed_model', ?)", (EMBED_MODEL,))
+                                conn.execute("INSERT OR REPLACE INTO meta VALUES ('dim', ?)", (str(dim),))
+                            rid0 = _next_rowid(conn)
+                            for j, c in enumerate(ok_chunks):
+                                rid = rid0 + j
+                                conn.execute(
+                                    "INSERT INTO chunks (rowid, source, category, text) VALUES (?,?,?,?)",
+                                    (rid, c["source"], c.get("category", "_root"), c["text"]))
+                                conn.execute(
+                                    "INSERT INTO vec_items (rowid, embedding) VALUES (?,?)",
+                                    (rid, np.asarray(file_matrix[j], dtype=np.float32).tobytes()))
+                            total_new_chunks += len(ok_chunks)
+                            for c in ok_chunks:
+                                cat = c.get("category", "_root")
+                                cats[cat] = cats.get(cat, 0) + 1
+                        fp = current[rel]
+                        conn.execute("INSERT OR REPLACE INTO file_meta VALUES (?,?,?)",
+                                     (rel, fp[0], fp[1]))
+
+                    if state is not None:
+                        if not ok_chunks:
+                            kind = "처리실패"
+                            state.add_warning(f"{fname}: 처리 실패(추출/임베딩 결과 없음)")
+                        else:
+                            kind = "변경" if rel in old_files else "신규"
+                        state.file_done(len(ok_chunks), kind)
+                except Exception as exc:
+                    # [버그 수정 — 예외 루틴 누락] 파일 하나가 던진 예외(손상된
+                    # 문서, 인코딩 오류 등)가 예전엔 이 for 루프를 그대로 뚫고
+                    # build_index() 전체를 죽였다 — 그러면 이미 위에서
+                    # _delete_sources()로 지워둔 이번 회차 대상 파일들(이 파일
+                    # 포함, 아직 처리 못 한 나머지도)이 전부 미처리 상태로
+                    # 남아 다음 회차에 처음부터 다시 시도되고, 같은 파일이
+                    # 계속 같은 이유로 죽으면 회차가 영원히 못 끝나는 구조였다.
+                    # 이 파일만 실패로 기록하고 다음 파일로 계속 진행한다 —
+                    # file_meta도 기록해서(다른 실패 케이스와 동일) 다음 회차에
+                    # 무한 재시도하지 않게 한다(내용이 바뀌면 fp가 달라져서
+                    # 자연히 다시 시도됨).
+                    print(f"    ⚠️ 경고: {fname} 처리 중 예외 발생 — 건너뜀: {exc}")
+                    try:
+                        with conn:
+                            fp = current[rel]
+                            conn.execute("INSERT OR REPLACE INTO file_meta VALUES (?,?,?)",
+                                         (rel, fp[0], fp[1]))
+                    except Exception:
+                        pass
+                    if state is not None:
+                        state.add_warning(f"{fname}: 처리 중 예외 — 건너뜀 ({exc})")
+                        state.file_done(0, "처리실패")
+                    continue
 
             if dup_of:
                 with conn:
@@ -719,6 +945,8 @@ def build_index(force: bool = False):
                       ", ".join(f"{k}={v}" for k, v in sorted(cats.items(), key=lambda x: -x[1])[:10]))
         else:
             print(f"[색인] 변경 없음 — 캐시 그대로 사용")
+            if state is not None:
+                state.start_round(0, len(reuse_files), 0)
 
         with conn:
             if dim:
@@ -749,7 +977,12 @@ RAG_PROMPT = """당신은 문서 기반 질의응답 도우미입니다.
 {question}"""
 
 def main():
-    chunks, search = build_index(force="--reindex" in sys.argv)
+    try:
+        chunks, search = build_index(force="--reindex" in sys.argv)
+    except ModelNotReadyError as exc:
+        sys.exit(f"오류: 임베딩 모델 GGUF 파일을 찾을 수 없습니다: {exc}\n"
+                 f"  .env의 RAG_EMBED_MODEL_PATH를 확인하거나, "
+                 f"Ollama가 bge-m3를 받아뒀는지(`ollama list`) 확인하세요.")
 
     from langchain_anthropic import ChatAnthropic
     llm = ChatAnthropic(model="claude-haiku-4-5", temperature=0.0, max_tokens=512)
