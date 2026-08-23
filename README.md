@@ -100,12 +100,15 @@
 
 ## 라이선스
 
-<!-- TODO: 라이선스 확정 필요 — MIT을 검토 중입니다.
-  ⚠️ HWP(.hwp) 지원에 쓰인 pyhwp(hwp5) 패키지가 AGPLv3+ 라이선스입니다.
-  MIT으로 확정하기 전에 이 의존성과의 호환성을 검토할 것 — 현재는 개인/
-  내부 사용 목적으로만 번들된 상태(2026-08-23). -->
-- 임베딩/검색/서버 코드: 확정 예정(MIT 검토 중)
-- HWP(.hwp) 파싱: [pyhwp](https://github.com/mete0r/pyhwp) — **AGPLv3 or later**
+이 프로젝트는 [GNU Affero General Public License v3.0(AGPLv3)](LICENSE) 라이선스를 따릅니다.
+
+전체 소스코드가 공개되어 있으며, 누구나 자유롭게 사용·수정·재배포할 수 있습니다. 다만 AGPLv3의 특성상, 이 코드를 기반으로 수정한 버전을 네트워크 서비스(서버) 형태로 운영해 다른 사람이 사용하게 하는 경우, 그 수정된 소스코드도 함께 공개해야 합니다.
+
+### 사용된 오픈소스
+
+- **[pyhwp](https://github.com/mete0r/pyhwp)** (HWP 파일 파싱) — Copyright (C) mete0r and contributors — AGPLv3 or later
+- **[bge-m3](https://huggingface.co/ggml-org/bge-m3-Q8_0-GGUF)** (임베딩 모델) — MIT License
+- **`sqlite-vec`**, **`llama-cpp-python`**, **`mcp`** 등 그 외 의존성은 각 프로젝트의 라이선스를 따릅니다.
 
 ## 기여
 
