@@ -129,7 +129,11 @@ DEGENERATE_SAMPLE_CHARS      = 200_000
 ABSOLUTE_MAX_CHARS = 3_000_000
 EMBED_MAX_RETRY   = 3
 TOP_K       = 4
-SUPPORTED   = (".md", ".pdf", ".docx", ".pptx")
+SUPPORTED   = (".md", ".txt", ".pdf", ".docx", ".pptx", ".hwpx", ".hwp")
+# [HWP지원] .txt는 extract_text()가 이미 처리하고 있었는데(".txt", ".md" 같은
+# 분기) SUPPORTED에는 빠져 있어서 scan_files()의 확장자 필터를 통과하지 못해
+# 조용히 무시되고 있었다 — 이번 티켓의 "기존 파일이 조용히 무시되고 있었는지"
+# 확인 과정에서 발견(실제 코퍼스에 .txt 2,233개, HWP와 무관한 별개 버그).
 
 # ── [MULTI] 문서 루트 다중 지정 ──────────────────────────────────────────────
 
@@ -141,10 +145,18 @@ def _resolve_docs_dirs(explicit: list[Path] | None = None) -> list[Path]:
     하위호환) > indexer_config.json(둘 다 없을 때만) > 기본값(이 파일 옆 docs/).
 
     [티켓 E] 온보딩 폴더(설치 폴더/onboarding/)는 위 우선순위와 무관하게
-    항상 마지막에 덧붙인다 — indexer_config.json(사용자가 /folders로 편집
+    항상 목록 맨 앞에 붙인다 — indexer_config.json(사용자가 /folders로 편집
     가능한 목록)에는 절대 안 들어가므로, 트레이 앱에서 사용자가 자기 폴더를
     전부 지워도 "NotebookRAG 안녕" 온보딩 문서는 계속 검색 대상에 남는다
-    (오늘 확정한 "계속 남기자" 결정 — 사용설명서/FAQ 역할까지 겸함)."""
+    (오늘 확정한 "계속 남기자" 결정 — 사용설명서/FAQ 역할까지 겸함).
+
+    [실사용 발견] 원래는 목록 맨 뒤에 붙였는데, 설치 안내 자체가 "모델
+    다운로드 → 폴더 추가"를 바로 이어서 하도록 유도하다 보니, 사용자가
+    설치 직후 빠르게 큰 폴더를 추가하면 그 폴더가 온보딩과 같은 회차에
+    스캔되면서 파일 하나뿐인 온보딩이 대용량 폴더 뒤로 밀려 한참 안 끝나는
+    문제가 있었다(실제로 이 개발 PC에서도 대량 재색인 중 재현됨). 맨 앞에
+    붙이면 매 회차 온보딩(파일 1개)을 먼저 처리하므로 비용은 거의 안 들면서
+    사용자가 폴더를 얼마나 빨리/많이 추가하든 첫 검색 경험이 보장된다."""
     if explicit is not None:
         dirs = explicit
     else:
@@ -157,7 +169,7 @@ def _resolve_docs_dirs(explicit: list[Path] | None = None) -> list[Path]:
 
     onboarding = get_install_dir() / "onboarding"
     if onboarding.is_dir() and onboarding not in dirs:
-        dirs = dirs + [onboarding]
+        dirs = [onboarding] + dirs
     return dirs
 
 def _make_dir_labels(dirs: list[Path]) -> dict[str, Path]:
@@ -230,6 +242,47 @@ def extract_text(f: Path) -> str | list[str]:
             if texts:
                 slides.append(f"[슬라이드 {n}]\n" + "\n".join(texts))
         return slides
+    if suf == ".hwpx":
+        # [HWP지원] hwpx는 zip+XML(OWPML) 구조라 표준 라이브러리만으로 충분하다
+        # — 별도 의존성 없음. Contents/section*.xml 각각의 모든 텍스트 노드를
+        # (태그/네임스페이스 무관하게) itertext()로 순서대로 그러모은다.
+        import zipfile
+        import xml.etree.ElementTree as ET
+        try:
+            parts = []
+            with zipfile.ZipFile(f) as z:
+                section_names = sorted(
+                    n for n in z.namelist()
+                    if n.startswith("Contents/section") and n.endswith(".xml")
+                )
+                for name in section_names:
+                    root = ET.fromstring(z.read(name))
+                    text = "".join(root.itertext())
+                    if text.strip():
+                        parts.append(text)
+            return "\n".join(parts)
+        except Exception as exc:
+            print(f"    경고: {f.name} HWPX 추출 실패 — 건너뜀 ({exc})")
+            return ""
+    if suf == ".hwp":
+        # [HWP지원] 구버전 HWP(복합파일+레코드 구조)는 오픈소스 pyhwp(hwp5)로
+        # 충분히 커버됨을 실제 문서 다수로 확인해서, 사용자의 MFC 참조 코드
+        # 포팅은 필요 없었다(Go/No-Go 조사 결과: Go, 오픈소스로 충분).
+        # hwp5txt CLI와 동일한 변환 파이프라인을 인프로세스로 재사용한다
+        # (서브프로세스 없이 — PyInstaller 번들 안에서 그대로 동작).
+        import io
+        from contextlib import closing
+        from hwp5.xmlmodel import Hwp5File
+        from hwp5.hwp5txt import TextTransform
+        try:
+            transform = TextTransform().transform_hwp5_to_text
+            buf = io.BytesIO()
+            with closing(Hwp5File(str(f))) as hwp5file:
+                transform(hwp5file, buf)
+            return buf.getvalue().decode("utf-8", errors="ignore")
+        except Exception as exc:
+            print(f"    경고: {f.name} HWP 추출 실패 — 건너뜀 ({exc})")
+            return ""
     return ""
 
 # ── 청킹 ─────────────────────────────────────────────────────────────────────
