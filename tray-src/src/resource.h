@@ -46,4 +46,14 @@
 // [티켓 G] 규칙 편집 다이얼로그(IDD_RULES_DIALOG)
 #define IDC_EDIT_RULES_TEXT     1040
 
+// [정보탭_버전관리] 탭 3 — 정보. 라이선스 필드는 아직 프로젝트 라이선스
+// 자체가 미정(README.md TODO 참고)이라 이번엔 뺐다 — 1054/1055는 나중에
+// 확정되면 쓸 수 있게 번호만 남겨둠(재사용 금지).
+#define IDC_INFO_TITLE          1050
+#define IDC_INFO_VERSION        1051
+#define IDC_INFO_GITHUB_LABEL   1052
+#define IDC_INFO_GITHUB         1053
+#define IDC_INFO_PATH_LABEL     1056
+#define IDC_INFO_PATH           1057
+
 #define ID_TRAY_EXIT            40001

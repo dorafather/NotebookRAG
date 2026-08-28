@@ -9,7 +9,10 @@
 #      (공개/비gated, MIT 라이선스, ggml-org/bge-m3-Q8_0-GGUF).
 #      ⚠️ bin\config\settings.json.template 자기 자신은 절대 건드리지
 #      않는다 — 정책상 마스터 사본은 계속 빈 값으로 유지해야 함.
-#   3. NotebookRAG.iss에 UTF-8 BOM을 강제(한글 깨짐 방지) 후 ISCC로 컴파일.
+#   3. src\app_paths.py의 NOTEBOOKRAG_VERSION(단일 진실 원천)을 읽어서
+#      ISCC "/DMyAppVersion=..."로 넘긴다 — .iss 파일 자체엔 버전을
+#      하드코딩하지 않는다([정보탭_버전관리]).
+#   4. NotebookRAG.iss에 UTF-8 BOM을 강제(한글 깨짐 방지) 후 ISCC로 컴파일.
 #
 # 사용법: installer\ 안에서 실행
 #   .\build_installer.ps1
@@ -19,10 +22,10 @@ $ErrorActionPreference = "Stop"
 $installerDir = $PSScriptRoot
 $root = Split-Path $installerDir -Parent
 
-Write-Host "[1/3] bin/ 자산 동기화 (sync_bin_assets.ps1)"
+Write-Host "[1/4] bin/ 자산 동기화 (sync_bin_assets.ps1)"
 & (Join-Path $root "sync_bin_assets.ps1")
 
-Write-Host "[2/3] 배포용 settings.json.template 생성 (모델 다운로드 값 주입)"
+Write-Host "[2/4] 배포용 settings.json.template 생성 (모델 다운로드 값 주입)"
 $srcTemplate = Join-Path $root "bin\config\settings.json.template"
 $stagingConfigDir = Join-Path $installerDir "staging\config"
 New-Item -ItemType Directory -Path $stagingConfigDir -Force | Out-Null
@@ -47,7 +50,16 @@ if ($json -eq $before) {
 [System.IO.File]::WriteAllText($dstTemplate, $json, (New-Object System.Text.UTF8Encoding($false)))
 Write-Host "  -> $dstTemplate 생성됨 (MODEL_DOWNLOAD_URL/MODEL_SHA256 주입)"
 
-Write-Host "[3/3] Inno Setup 컴파일"
+Write-Host "[3/4] 버전 확인 (src/app_paths.py의 NOTEBOOKRAG_VERSION)"
+$srcDir = Join-Path $root "src"
+$appVersion = & python -c "import sys; sys.path.insert(0, r'$srcDir'); from app_paths import NOTEBOOKRAG_VERSION; print(NOTEBOOKRAG_VERSION)"
+if ($LASTEXITCODE -ne 0 -or -not $appVersion) {
+    throw "app_paths.NOTEBOOKRAG_VERSION을 못 읽음 — python 환경/경로 확인할 것"
+}
+$appVersion = $appVersion.Trim()
+Write-Host "  -> 버전: $appVersion"
+
+Write-Host "[4/4] Inno Setup 컴파일"
 $issPath = Join-Path $installerDir "NotebookRAG.iss"
 # ISCC가 한글을 깨지지 않게 읽으려면 UTF-8 BOM이 필요 — 매 빌드마다 강제.
 $issText = Get-Content -Raw -Encoding UTF8 $issPath
@@ -61,7 +73,7 @@ if (-not (Test-Path $iscc)) {
     throw "ISCC.exe를 찾을 수 없음 — Inno Setup 6가 설치돼 있는지 확인할 것"
 }
 
-& $iscc $issPath
+& $iscc "/DMyAppVersion=$appVersion" $issPath
 if ($LASTEXITCODE -ne 0) {
     throw "ISCC 컴파일 실패 (종료 코드 $LASTEXITCODE)"
 }

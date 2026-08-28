@@ -42,6 +42,12 @@ installer/staging/
 # tray-src(C++/MFC) 빌드 산출물 — build.bat로 재생성 가능
 tray-src/tray.exe
 tray-src/tray.exe.manifest
+
+# [정보탭_버전관리] gen_version_file.py/gen_version_h.py가 app_paths.py의
+# NOTEBOOKRAG_VERSION으로부터 빌드 시점에 재생성하는 산출물 — 미커밋
+src/version_info_notebookrag.txt
+src/version_info_mcprag.txt
+tray-src/src/version.h
 *.obj
 *.pdb
 *.res

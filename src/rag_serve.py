@@ -85,7 +85,7 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
-from app_paths import load_settings_json
+from app_paths import load_settings_json, NOTEBOOKRAG_VERSION, GITHUB_URL
 
 load_settings_json()  # load_dotenv()보다 먼저 호출 (우선순위: 환경변수 > .env > settings.json)
 load_dotenv()
@@ -314,6 +314,10 @@ async def health(request: Request):
         # [상태정보확장]
         "오늘검색횟수": getattr(request.app.state, "search_count_today", 0),
         "가동시작시각": getattr(request.app.state, "started_at", None),
+        # [정보탭_버전관리] 하드코딩 금지 — app_paths.NOTEBOOKRAG_VERSION이
+        # 유일한 진실 원천, 여기서는 그대로 참조만 한다.
+        "버전": NOTEBOOKRAG_VERSION,
+        "github": GITHUB_URL,
     }
 
 

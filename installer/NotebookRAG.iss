@@ -13,7 +13,13 @@
 ; ISCC로 컴파일하지 말고 항상 build_installer.ps1을 통해 실행할 것.
 
 #define MyAppName "NotebookRAG"
-#define MyAppVersion "1.0.0"
+; [정보탭_버전관리] 단일 진실 원천은 src/app_paths.py의 NOTEBOOKRAG_VERSION —
+; build_installer.ps1이 그 값을 읽어 "ISCC /DMyAppVersion=..."로 넘겨준다.
+; 여기 기본값은 build_installer.ps1을 거치지 않고 직접 컴파일했을 때만 쓰이는
+; 폴백이니, 값 자체를 신경 쓸 필요는 없다(항상 build_installer.ps1로 빌드할 것).
+#ifndef MyAppVersion
+  #define MyAppVersion "0.0.0-direct-iscc-build"
+#endif
 #define MyAppPublisher "Point-I"
 #define MyAppExeName "bin\tray\tray.exe"
 

@@ -1,7 +1,38 @@
 #include "../src/resource.h"
+#include "../src/version.h"
 #include <afxres.h>
 
 IDI_TRAY_ICON ICON "notebookrag.ico"
+
+// [정보탭_버전관리] version.h는 빌드 시점에 build.bat이 app_paths.py의
+// NOTEBOOKRAG_VERSION에서 자동 생성한다 — 여기 직접 값을 적지 않는다.
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION NOTEBOOKRAG_VERSION_CSV
+ PRODUCTVERSION NOTEBOOKRAG_VERSION_CSV
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "041204B0"
+        BEGIN
+            VALUE "CompanyName", "Point-I"
+            VALUE "FileDescription", "NotebookRAG Tray"
+            VALUE "FileVersion", NOTEBOOKRAG_VERSION_STR
+            VALUE "InternalName", "tray.exe"
+            VALUE "OriginalFilename", "tray.exe"
+            VALUE "ProductName", "NotebookRAG"
+            VALUE "ProductVersion", NOTEBOOKRAG_VERSION_STR
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x412, 1200
+    END
+END
 
 // [티켓 F/G] 컨트롤 텍스트(라벨/버튼 캡션 등)는 한글이라 .rc 파일 인코딩
 // 문제(rc.exe가 시스템 코드페이지를 기대해 UTF-8 소스에서 깨지는 사례가
@@ -37,6 +68,14 @@ BEGIN
     PUSHBUTTON      "", IDC_BTN_REMOVE_FOLDER, 112, 132, 62, 15
     PUSHBUTTON      "", IDC_BTN_EDIT_RULES, 178, 132, 62, 15
     CONTROL         "", IDC_CHECK_AUTOSTART, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 20, 156, 240, 12
+
+    // ── 탭 3: 정보 (같은 영역, 시작 시 숨김) ──
+    LTEXT           "", IDC_INFO_TITLE, 20, 32, 260, 16
+    LTEXT           "", IDC_INFO_VERSION, 20, 56, 260, 12
+    LTEXT           "", IDC_INFO_GITHUB_LABEL, 20, 76, 260, 12
+    LTEXT           "", IDC_INFO_GITHUB, 20, 92, 260, 12, SS_NOTIFY
+    LTEXT           "", IDC_INFO_PATH_LABEL, 20, 116, 260, 12
+    LTEXT           "", IDC_INFO_PATH, 20, 132, 260, 32
 END
 
 IDD_RULES_DIALOG DIALOGEX 0, 0, 260, 180

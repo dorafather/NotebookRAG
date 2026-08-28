@@ -6,6 +6,7 @@
 #include <process.h>
 #include <shobjidl.h>
 #include <shlobj.h>
+#include <shellapi.h>
 #include <psapi.h>
 #include <tlhelp32.h>
 
@@ -242,6 +243,13 @@ void CDialogSkeleton::DoDataExchange(CDataExchange* pDX)
     DDX_Control(pDX, IDC_BTN_REMOVE_FOLDER, m_btnRemoveFolder);
     DDX_Control(pDX, IDC_BTN_EDIT_RULES, m_btnEditRules);
     DDX_Control(pDX, IDC_CHECK_AUTOSTART, m_chkAutostart);
+
+    DDX_Control(pDX, IDC_INFO_TITLE, m_infoTitle);
+    DDX_Control(pDX, IDC_INFO_VERSION, m_infoVersion);
+    DDX_Control(pDX, IDC_INFO_GITHUB_LABEL, m_infoGithubLabel);
+    DDX_Control(pDX, IDC_INFO_GITHUB, m_infoGithub);
+    DDX_Control(pDX, IDC_INFO_PATH_LABEL, m_infoPathLabel);
+    DDX_Control(pDX, IDC_INFO_PATH, m_infoPath);
 }
 
 BEGIN_MESSAGE_MAP(CDialogSkeleton, CDialog)
@@ -257,6 +265,7 @@ BEGIN_MESSAGE_MAP(CDialogSkeleton, CDialog)
     ON_BN_CLICKED(IDC_BTN_REMOVE_FOLDER, &CDialogSkeleton::OnBtnRemoveFolder)
     ON_BN_CLICKED(IDC_BTN_EDIT_RULES, &CDialogSkeleton::OnBtnEditRules)
     ON_BN_CLICKED(IDC_CHECK_AUTOSTART, &CDialogSkeleton::OnBtnAutostart)
+    ON_STN_CLICKED(IDC_INFO_GITHUB, &CDialogSkeleton::OnStnClickedInfoGithub)
 END_MESSAGE_MAP()
 
 BOOL CDialogSkeleton::OnInitDialog()
@@ -268,6 +277,7 @@ BOOL CDialogSkeleton::OnInitDialog()
 
     m_tabCtrl.InsertItem(0, L"상태정보");
     m_tabCtrl.InsertItem(1, L"설정");
+    m_tabCtrl.InsertItem(2, L"정보");
     m_tabCtrl.SetCurSel(0);
 
     m_modelLabel.SetWindowTextW(L"모델:");
@@ -296,6 +306,28 @@ BOOL CDialogSkeleton::OnInitDialog()
     m_chkAutostart.SetWindowTextW(L"Windows 시작 시 자동 실행");
     m_chkAutostart.SetCheck(IsAutostartRegistered() ? BST_CHECKED : BST_UNCHECKED);
 
+    // [정보탭_버전관리] 버전/GitHub는 /health 응답이 와야 채워진다(백엔드가
+    // 응답 못 하면 "확인 불가"로 우아하게 표시 — ApplyStatus() 참고).
+    // 설치 위치는 지금 실행 중인 자기 자신(tray.exe)에서 바로 구할 수
+    // 있으므로 백엔드와 무관하게 여기서 한 번만 계산한다.
+    m_infoTitle.SetWindowTextW(L"NotebookRAG");
+    m_infoVersion.SetWindowTextW(L"버전: 확인 중...");
+    m_infoGithubLabel.SetWindowTextW(L"GitHub:");
+    m_infoGithub.SetWindowTextW(L"확인 중...");
+    m_infoPathLabel.SetWindowTextW(L"설치 위치:");
+    {
+        // tray.exe 자기 자신 경로 기준({app}\bin\tray\tray.exe → {app}로
+        // 세 단계 truncate) — TrayApp.cpp::Init()의 notebookrag.exe 경로
+        // 계산과 같은 패턴.
+        wchar_t exePathBuf[MAX_PATH];
+        GetModuleFileNameW(nullptr, exePathBuf, MAX_PATH);
+        std::wstring path = exePathBuf;
+        path = path.substr(0, path.find_last_of(L'\\'));   // {app}\bin\tray
+        path = path.substr(0, path.find_last_of(L'\\'));   // {app}\bin
+        path = path.substr(0, path.find_last_of(L'\\'));   // {app}
+        m_infoPath.SetWindowTextW(path.c_str());
+    }
+
     ShowTab(0);
 
     return TRUE;
@@ -305,6 +337,7 @@ void CDialogSkeleton::ShowTab(int index)
 {
     int showTab1 = (index == 0) ? SW_SHOW : SW_HIDE;
     int showTab2 = (index == 1) ? SW_SHOW : SW_HIDE;
+    int showTab3 = (index == 2) ? SW_SHOW : SW_HIDE;
 
     m_conn.ShowWindow(showTab1);
     m_modelLabel.ShowWindow(showTab1);
@@ -327,6 +360,13 @@ void CDialogSkeleton::ShowTab(int index)
     m_btnRemoveFolder.ShowWindow(showTab2);
     m_btnEditRules.ShowWindow(showTab2);
     m_chkAutostart.ShowWindow(showTab2);
+
+    m_infoTitle.ShowWindow(showTab3);
+    m_infoVersion.ShowWindow(showTab3);
+    m_infoGithubLabel.ShowWindow(showTab3);
+    m_infoGithub.ShowWindow(showTab3);
+    m_infoPathLabel.ShowWindow(showTab3);
+    m_infoPath.ShowWindow(showTab3);
 
     if (index == 1) RefreshFolderList();
 }
@@ -412,6 +452,57 @@ void CDialogSkeleton::PollLoop()
             }
             if (const JsonValue* v = health.body.Find("오늘검색횟수"))
                 status->searchCountToday = (int)v->AsNumber();
+            // [정보탭_버전관리] 하드코딩 금지 — 백엔드가 응답 못 하면
+            // status->version/github는 빈 문자열로 남고, ApplyStatus()가
+            // "확인 불가"로 표시한다.
+            if (const JsonValue* v = health.body.Find("버전"))
+                status->version = v->AsString();
+            if (const JsonValue* v = health.body.Find("github"))
+                status->github = v->AsString();
+        }
+
+        // [워치독] notebookrag.exe(부모 데몬)가 프로세스로는 살아있어도
+        // HTTP가 완전히 응답 없는 상태(리스닝 소켓 자체가 사라지는 경우가
+        // 실사용 중 확인됨 — OneDrive 등과의 디스크 I/O 경합이 시작 단계의
+        // 동기 DB/인덱스 로딩을 막아버린 것으로 추정)를 감시한다.
+        //
+        // 타임아웃을 5분으로 넉넉하게 잡은 이유: 정상적인 시작 단계(특히
+        // 디스크 경합이 겹칠 때)도 꽤 오래 걸릴 수 있어서, 너무 짧으면
+        // 멀쩡히 느리게 뜨는 중인 프로세스를 오작동으로 오인해 죽이게
+        // 된다. 연속 재시작을 3회로 제한한 이유: 진짜 문제(DB 손상,
+        // 근본적인 디스크 병목 등)라면 재시작 자체가 디스크에 부하를 또
+        // 얹어서 상황을 악화시킬 수 있으므로, 일정 횟수 이상은 포기하고
+        // 조용히 "연결 안 됨"으로 둔다(사용자가 상태정보 탭에서 확인하고
+        // 수동으로 "다시 시도"할 수 있음 — ApplyStatus/OnBtnPauseResume 참고).
+        // 한 번이라도 정상 응답이 오면 전부 리셋된다.
+        if (status->healthOk)
+        {
+            m_watchdogWindowStartTick = GetTickCount64();
+            m_watchdogRestartCount = 0;
+            m_watchdogGaveUp = false;
+        }
+        else if (!m_watchdogGaveUp)
+        {
+            if (m_watchdogWindowStartTick == 0)
+                m_watchdogWindowStartTick = GetTickCount64();
+
+            const ULONGLONG kWatchdogTimeoutMs = 5ULL * 60 * 1000;  // 5분
+            const int kWatchdogMaxRestarts = 3;
+            ULONGLONG elapsed = GetTickCount64() - m_watchdogWindowStartTick;
+
+            if (elapsed >= kWatchdogTimeoutMs)
+            {
+                if (m_watchdogRestartCount < kWatchdogMaxRestarts)
+                {
+                    m_watchdogRestartCount++;
+                    m_pTrayWnd->RestartChildProcess();
+                    m_watchdogWindowStartTick = GetTickCount64();  // 재시작 직후부터 다시 5분 카운트
+                }
+                else
+                {
+                    m_watchdogGaveUp = true;
+                }
+            }
         }
 
         // [상태정보확장 4단계 — 부모+자식(색인 워커) 합산] CPU%/메모리/
@@ -659,12 +750,38 @@ void CDialogSkeleton::ApplyStatus(const PolledStatus& s)
             m_disk.SetWindowTextW(L"—");
             m_btnWarnings.SetWindowTextW(L"경고 —");
         }
-        m_btnPauseResume.EnableWindow(FALSE);
+        // [워치독] 자동 재시작을 포기한 상태면, 원래 일시정지/재개 버튼
+        // 자리를 수동 "다시 시도"로 바꿔서 사용자가 직접 재시도할 길을
+        // 남겨둔다(디스크 부하 재발 방지를 위해 자동 재시작은 3회로
+        // 제한했지만, 완전히 손 놓지는 않는다).
+        if (m_watchdogGaveUp)
+        {
+            m_btnPauseResume.SetWindowTextW(L"다시 시도");
+            m_btnPauseResume.EnableWindow(TRUE);
+        }
+        else
+        {
+            m_btnPauseResume.EnableWindow(FALSE);
+        }
         return;
     }
 
     m_haveGoodStatus = true;
     m_lastGoodTick = GetTickCount64();
+
+    // [정보탭_버전관리] /health의 "버전"/"github"를 그대로 표시 — 하드코딩
+    // 금지. 응답이 끊기면(위 !s.healthOk 분기) 여기 안 오므로 마지막으로
+    // 성공했던 값이 그대로 남는다(다른 필드들과 같은 기존 관례).
+    if (!s.version.empty())
+    {
+        std::wstring versionText = L"버전: v" + s.version;
+        m_infoVersion.SetWindowTextW(versionText.c_str());
+    }
+    if (!s.github.empty())
+    {
+        m_githubUrl = s.github;
+        m_infoGithub.SetWindowTextW(s.github.c_str());
+    }
     m_btnPauseResume.EnableWindow(TRUE);
 
     // [상태정보확장 4단계] 가동시간/PID/host:port + CPU%/메모리.
@@ -879,6 +996,19 @@ void CDialogSkeleton::ApplyStatus(const PolledStatus& s)
 
 void CDialogSkeleton::OnBtnPauseResume()
 {
+    // [워치독] 자동 재시작을 포기한 뒤엔 이 버튼이 "다시 시도"로 바뀌어
+    // 있다(ApplyStatus 참고) — 그 상태에서 클릭되면 일시정지/재개가 아니라
+    // 수동 재시작 요청으로 취급한다. 워치독 카운터도 리셋해서, 이번에도
+    // 5분 안에 안 되면 다시 자동으로 3회까지 재시도할 기회를 준다.
+    if (m_watchdogGaveUp)
+    {
+        m_watchdogGaveUp = false;
+        m_watchdogRestartCount = 0;
+        m_watchdogWindowStartTick = GetTickCount64();
+        m_pTrayWnd->RestartChildProcess();
+        return;
+    }
+
     CApiClient api(m_settings.host, m_settings.port);
     bool isPaused = (m_currentPhase == L"paused");
     api.Post(isPaused ? L"/indexer/resume" : L"/indexer/pause");
@@ -1067,4 +1197,14 @@ void CDialogSkeleton::OnBtnAutostart()
     // 낙관적 업데이트 금지 — 실제 반영된 레지스트리 상태를 다시 조회해서
     // 체크박스에 반영한다(실패 시 원래 상태로 되돌아감).
     m_chkAutostart.SetCheck(IsAutostartRegistered() ? BST_CHECKED : BST_UNCHECKED);
+}
+
+void CDialogSkeleton::OnStnClickedInfoGithub()
+{
+    // [정보탭_버전관리] Windows 표준 방식(ShellExecute)으로 기본 브라우저를
+    // 연다 — 새 의존성 불필요. github URL은 /health에서 받아온 값을 그대로
+    // 쓴다(하드코딩 금지). 아직 한 번도 못 받았으면(healthOk 없었던 경우)
+    // 조용히 무시한다.
+    if (m_githubUrl.empty()) return;
+    ShellExecuteW(m_hWnd, L"open", m_githubUrl.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }

@@ -37,19 +37,7 @@ BOOL CTrayWnd::Init()
         return FALSE;
     }
 
-    // notebookrag.exe 경로: tray.exe 자기 위치(bin/tray/tray.exe) 기준
-    // 상대경로로 해석 — bin/notebookrag/notebookrag.exe.
-    wchar_t exePathBuf[MAX_PATH];
-    GetModuleFileNameW(nullptr, exePathBuf, MAX_PATH);
-    std::wstring trayExeDir = exePathBuf;
-    size_t slash1 = trayExeDir.find_last_of(L'\\');
-    trayExeDir = trayExeDir.substr(0, slash1);                    // .../bin/tray
-    size_t slash2 = trayExeDir.find_last_of(L'\\');
-    std::wstring binDir = trayExeDir.substr(0, slash2);            // .../bin
-    std::wstring notebookragDir = binDir + L"\\notebookrag";
-    std::wstring notebookragExe = notebookragDir + L"\\notebookrag.exe";
-
-    m_processManager.Launch(notebookragExe, notebookragDir);
+    LaunchChildProcess();
 
     // 트레이 아이콘 등록
     m_nid.cbSize = sizeof(m_nid);
@@ -68,6 +56,42 @@ BOOL CTrayWnd::Init()
     m_pDialog->StartPolling();
 
     return TRUE;
+}
+
+void CTrayWnd::LaunchChildProcess()
+{
+    // notebookrag.exe 경로: tray.exe 자기 위치(bin/tray/tray.exe) 기준
+    // 상대경로로 해석 — bin/notebookrag/notebookrag.exe. Init()과
+    // RestartChildProcess()(워치독) 양쪽이 공유하는 경로 계산+기동 로직.
+    wchar_t exePathBuf[MAX_PATH];
+    GetModuleFileNameW(nullptr, exePathBuf, MAX_PATH);
+    std::wstring trayExeDir = exePathBuf;
+    size_t slash1 = trayExeDir.find_last_of(L'\\');
+    trayExeDir = trayExeDir.substr(0, slash1);                    // .../bin/tray
+    size_t slash2 = trayExeDir.find_last_of(L'\\');
+    std::wstring binDir = trayExeDir.substr(0, slash2);            // .../bin
+    std::wstring notebookragDir = binDir + L"\\notebookrag";
+    std::wstring notebookragExe = notebookragDir + L"\\notebookrag.exe";
+
+    m_processManager.Launch(notebookragExe, notebookragDir);
+}
+
+void CTrayWnd::RestartChildProcess()
+{
+    // [워치독] Terminate()가 이제 TerminateJobObject를 쓰므로 자식+손자
+    // (색인 자식 프로세스)까지 한 번에 죽는다. 다만 TerminateProcess류
+    // API는 종료를 "요청"만 하고 비동기이므로, 포트(8420/8421)가 실제로
+    // 반납되기 전에 새 프로세스를 바로 띄우면 바인드 실패 race가 생길 수
+    // 있다 — 옛 프로세스 핸들이 실제로 신호 상태(종료 완료)가 될 때까지
+    // 잠깐 기다린 뒤에 재기동한다(최대 5초, 그 이상 걸리면 포기하고
+    // 그냥 진행 — 무한 대기는 안 함).
+    HANDLE hOldProcess = m_processManager.GetProcessHandle();
+    m_processManager.Terminate();
+    if (hOldProcess)
+    {
+        WaitForSingleObject(hOldProcess, 5000);
+    }
+    LaunchChildProcess();
 }
 
 void CTrayWnd::UpdateTooltip(bool connected)

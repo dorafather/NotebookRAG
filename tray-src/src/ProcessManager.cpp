@@ -74,9 +74,15 @@ bool CProcessManager::Launch(const std::wstring& exePath, const std::wstring& wo
 
 void CProcessManager::Terminate()
 {
-    if (m_pi.hProcess)
+    // [워치독] TerminateProcess(m_pi.hProcess)는 이 핸들이 가리키는
+    // 프로세스 하나만 죽인다 — Job Object에 배정된 손자 프로세스(색인
+    // 자식, notebookrag.exe가 multiprocessing으로 띄움)는 안 죽는다.
+    // TerminateJobObject는 이 Job에 배정된 프로세스 전부를 한 번에
+    // 죽이므로, 재시작 시 손자가 옛 포트(INDEXER_PROC_PORT)를 계속 물고
+    // 있어서 새 프로세스가 바인드 실패하는 문제 없이 깨끗하게 정리된다.
+    if (m_hJob)
     {
-        TerminateProcess(m_pi.hProcess, 0);
+        TerminateJobObject(m_hJob, 0);
     }
 }
 

@@ -86,6 +86,12 @@ struct PolledStatus
     // [상태정보확장 3단계] 감시 폴더 — 신규 API 없이 기존 GET /indexer/folders 재사용.
     bool foldersOk = false;
     std::vector<std::wstring> watchedFolders;
+
+    // [정보탭_버전관리] GET /health의 "버전"/"github" — 하드코딩 금지,
+    // 백엔드가 응답 못 하면(healthOk==false) 트레이 쪽도 "확인 불가"로
+    // 우아하게 표시한다.
+    std::wstring version;
+    std::wstring github;
 };
 
 // [티켓 F 뼈대 → 티켓 G 실제 구현] 탭 2개("상태정보"/"설정")를 실제
@@ -126,6 +132,7 @@ protected:
     afx_msg void OnBtnRemoveFolder();
     afx_msg void OnBtnEditRules();
     afx_msg void OnBtnAutostart();
+    afx_msg void OnStnClickedInfoGithub();
     DECLARE_MESSAGE_MAP()
 
 private:
@@ -156,6 +163,13 @@ private:
     CButton m_btnAddFolder, m_btnRemoveFolder, m_btnEditRules;
     CButton m_chkAutostart;  // [티켓 H]
 
+    // 탭 3 — 정보
+    CStatic m_infoTitle;
+    CStatic m_infoVersion;
+    CStatic m_infoGithubLabel, m_infoGithub;
+    CStatic m_infoPathLabel, m_infoPath;
+    std::wstring m_githubUrl;  // OnStnClickedInfoGithub()가 ShellExecute할 때 씀
+
     Settings m_settings;
     std::wstring m_currentPhase;      // /indexer/status.phase 최신값(일시정지/재개 버튼 판단용)
     std::vector<std::wstring> m_recentWarnings;
@@ -171,6 +185,14 @@ private:
     // "마지막 확인: N분 전" 표시를 얹는다.
     bool m_haveGoodStatus = false;
     ULONGLONG m_lastGoodTick = 0;
+
+    // [워치독] /health가 연속으로 응답 없을 때 자식 프로세스를 재시작하는
+    // 로직의 상태 — 전부 폴링 스레드 하나만 쓰고 쓰므로(다른 필드들과
+    // 같은 기존 관례) 락 없이 접근. m_watchdogGaveUp만 UI 스레드(수동
+    // "다시 시도" 버튼)도 읽고/쓴다 — bool 하나라 자연스럽게 원자적.
+    ULONGLONG m_watchdogWindowStartTick = 0;
+    int m_watchdogRestartCount = 0;
+    bool m_watchdogGaveUp = false;
 
     // [상태정보확장 4단계] CPU% 계산용 이전 샘플(폴링 스레드에서만 읽고 쓰므로
     // 락 불필요) — 100ns 단위(FILETIME 그대로).

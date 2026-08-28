@@ -26,6 +26,16 @@ import shutil
 import sys
 from pathlib import Path
 
+# [정보탭_버전관리] 단일 진실 원천(single source of truth) — 버전은 반드시
+# 여기서만 바꾼다. README/설치파일(.iss)/exe VERSIONINFO/트레이 "정보" 탭/
+# GET /health 전부 이 두 상수를 그대로 참조하거나(파이썬 쪽), 빌드 스크립트가
+# 빌드 시점에 이 값을 읽어 주입한다(.iss/버전 리소스 등 비-파이썬 산출물).
+# 이 파일을 app_paths.py에 둔 이유: rag_serve.py/notebookrag_main.py 양쪽이
+# 이미 이 모듈을 임포트하고 있어서 순환 임포트 없이 공유 가능한 가장 낮은
+# 레벨의 공용 모듈이기 때문.
+NOTEBOOKRAG_VERSION = "1.2.0"
+GITHUB_URL = "https://github.com/dorafather/NotebookRAG"
+
 
 def lower_process_priority() -> None:
     """[실사용 발견 — 2026-08-28] 이 프로세스를 Windows "백그라운드 처리

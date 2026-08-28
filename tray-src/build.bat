@@ -10,6 +10,16 @@ if errorlevel 1 (
 
 if not exist build mkdir build
 
+REM Regenerate src\version.h from the single source of truth
+REM (app_paths.NOTEBOOKRAG_VERSION) on every build. See gen_version_h.py
+REM for details. NOTE: keep this .bat file ASCII-only -- Korean text here
+REM has previously broken cmd.exe's line parsing on this project.
+python ..\src\gen_version_h.py
+if errorlevel 1 (
+  echo GEN_VERSION_H_FAILED
+  exit /b 1
+)
+
 rc.exe /nologo /fo build\tray.res /I resources resources\notebookrag.rc
 if errorlevel 1 (
   echo RC_FAILED

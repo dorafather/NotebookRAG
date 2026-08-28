@@ -30,6 +30,15 @@ public:
     // UI 스레드(다이얼로그)에서 호출되므로 스레드 안전성 문제 없음.
     void UpdateTooltip(bool connected);
 
+    // [워치독] notebookrag.exe(부모 데몬)가 프로세스로는 살아있는데 HTTP가
+    // 완전히 응답 없는 상태(리스닝 소켓 자체가 사라지는 경우 실사용 중
+    // 확인됨 — OneDrive 등과의 디스크 I/O 경합이 시작 단계의 동기 DB/인덱스
+    // 로딩을 막아버린 것으로 추정)에서 CDialogSkeleton의 폴링 스레드가
+    // 호출한다. 기존 자식을 강제 종료하고 Init()과 같은 경로로 다시
+    // 띄운다 — 호출자(폴링 스레드)에서 직접 부르지만, 프로세스 종료/생성
+    // 자체는 원래 이 프로세스(Job Object 소유자)의 책임 영역이라 여기 둔다.
+    void RestartChildProcess();
+
     // [상태정보확장] CDialogSkeleton의 폴링 스레드가 CPU%/메모리/가동시간을
     // 직접 조회할 때 씀 — CTrayWnd가 CProcessManager를 소유하므로 이걸
     // 거쳐서만 핸들에 접근 가능.
@@ -45,6 +54,7 @@ protected:
 private:
     void ShowContextMenu();
     void OpenDialog();
+    void LaunchChildProcess();  // Init()/RestartChildProcess()가 공유하는 경로 계산+기동 로직
 
     NOTIFYICONDATAW m_nid;
     CProcessManager m_processManager;
