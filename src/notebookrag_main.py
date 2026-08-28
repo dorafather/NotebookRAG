@@ -39,10 +39,13 @@ notebookrag_main.py — NotebookRAG 통합 진입점 [티켓 C-0]
 성능/우선순위 관련(2026-08-20 사용자 피드백 반영): 이 프로세스는 트레이 앱이
 관리하는 상시 백그라운드 서비스라 "존재감을 드러내지 않아야" 한다는 요구가
 있었다. 두 가지로 대응:
-  1. 프로세스 우선순위를 BELOW_NORMAL로 낮춤(아래 _lower_process_priority()) —
-     사용자가 포그라운드에서 뭘 하든 OS 스케줄러가 이 프로세스를 항상 양보하게
-     만든다. 검색 API도 같은 프로세스라 같이 낮아지지만, 로컬호스트 응답
-     속도에는 체감상 영향이 없는 수준이라고 판단.
+  1. 프로세스 우선순위를 낮춤(app_paths.lower_process_priority(), 2026-08-28
+     PROCESS_MODE_BACKGROUND_BEGIN으로 강화 — CPU뿐 아니라 디스크 I/O·메모리
+     우선순위까지 같이 낮춤. 색인 자식 프로세스도 동일하게 호출한다 — 대량
+     파일 스캔 중 디스크 I/O를 이 프로세스들만 낮추지 않으면 시스템 전체가
+     행 걸리는 문제가 실사용 중 확인됨) — 사용자가 포그라운드에서 뭘 하든
+     OS가 이 프로세스들을 항상 양보하게 만든다. 검색 API도 같은 프로세스라
+     같이 낮아지지만, 로컬호스트 응답 속도에는 체감상 영향이 없는 수준.
   2. rag_indexing.EMBED_THREADS(llama.cpp 내부 스레드 수)를 기존
      os.cpu_count() 고정값에서 코어수의 절반(기본값)으로 낮춤 — 예전엔
      RAG_EMBED_WORKERS를 1로 낮춰도 임베딩 한 번마다 전체 코어를 썼었다
@@ -63,7 +66,6 @@ notebookrag_main.py — NotebookRAG 통합 진입점 [티켓 C-0]
 from __future__ import annotations
 
 import asyncio
-import ctypes
 import logging
 import multiprocessing
 import os
@@ -77,38 +79,10 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 
-from app_paths import load_settings_json, get_install_dir
+from app_paths import load_settings_json, get_install_dir, lower_process_priority
 
 load_settings_json()  # load_dotenv()보다 먼저 호출 (우선순위: 환경변수 > .env > settings.json)
 load_dotenv()
-
-
-def _lower_process_priority() -> None:
-    """[성능] 프로세스 전체를 BELOW_NORMAL_PRIORITY_CLASS로 낮춘다 — 상시
-    백그라운드 서비스라 사용자의 포그라운드 작업에 항상 CPU를 양보하게
-    만드는 게 목적. ctypes+kernel32만 쓰고 새 의존성(예: psutil)을 들이지
-    않는다. 실패해도(권한 문제 등) 치명적이지 않으므로 조용히 무시하고
-    NORMAL로 계속 실행한다 — 이 프로세스의 핵심 기능과 무관한 최적화이므로."""
-    if sys.platform != "win32":
-        return
-    try:
-        BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
-        kernel32 = ctypes.windll.kernel32
-        # [주의] GetCurrentProcess()는 포인터 크기 HANDLE을 반환하는데,
-        # ctypes는 선언 없는 함수를 기본 c_int(32비트)로 취급해서 64비트에서
-        # 핸들이 잘린다(실제로 GetLastError=6 ERROR_INVALID_HANDLE로 재현됨) —
-        # restype을 명시해야 한다.
-        kernel32.GetCurrentProcess.restype = ctypes.c_void_p
-        kernel32.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
-        handle = kernel32.GetCurrentProcess()
-        ok = kernel32.SetPriorityClass(handle, BELOW_NORMAL_PRIORITY_CLASS)
-        if ok:
-            log.info("프로세스 우선순위를 BELOW_NORMAL로 낮췄습니다")
-        else:
-            log.warning("SetPriorityClass가 실패를 반환함(GetLastError=%d) — NORMAL로 계속",
-                       ctypes.windll.kernel32.GetLastError())
-    except Exception as exc:
-        log.warning("프로세스 우선순위 조정 실패(무시하고 계속): %s", exc)
 
 
 import rag_serve
@@ -125,7 +99,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("notebookrag")
 
-_lower_process_priority()
+lower_process_priority()
 
 RAG_HTTP_HOST = rag_serve.RAG_HTTP_HOST
 RAG_HTTP_PORT = rag_serve.RAG_HTTP_PORT

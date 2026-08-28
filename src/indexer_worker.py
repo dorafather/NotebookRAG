@@ -48,7 +48,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
-from app_paths import load_settings_json, load_indexer_config, save_indexer_config
+from app_paths import load_settings_json, load_indexer_config, save_indexer_config, lower_process_priority
 
 load_settings_json()
 
@@ -195,5 +195,11 @@ async def put_rules(req: RulesRequest):
 
 
 def run_worker() -> None:
-    """multiprocessing.Process(target=run_worker)로 기동된다."""
+    """multiprocessing.Process(target=run_worker)로 기동된다.
+
+    [실사용 발견 — 2026-08-28] 대량 파일 스캔/콘텐츠해시/텍스트추출을
+    실제로 수행하는 게 바로 이 프로세스인데, 예전엔 우선순위 조정이
+    전혀 없었다 — 디스크 I/O가 NORMAL 우선순위 그대로라 대량 재색인 중
+    시스템 전체(탐색기 포함)가 행 걸리는 문제가 실사용 중 확인됨."""
+    lower_process_priority()
     uvicorn.run(app, host=INDEXER_HOST, port=INDEXER_PORT)

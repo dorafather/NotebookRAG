@@ -27,6 +27,40 @@ import sys
 from pathlib import Path
 
 
+def lower_process_priority() -> None:
+    """[실사용 발견 — 2026-08-28] 이 프로세스를 Windows "백그라운드 처리
+    모드"(PROCESS_MODE_BACKGROUND_BEGIN)로 낮춘다 — CPU뿐 아니라 디스크
+    I/O·메모리 우선순위까지 함께 낮아진다.
+
+    예전엔 notebookrag_main.py(부모)만 BELOW_NORMAL_PRIORITY_CLASS로 CPU
+    우선순위만 낮췄는데, 실제 대량 파일 스캔/콘텐츠해시/텍스트추출을 하는
+    쪽은 색인 자식 프로세스(indexer_worker.py)이고 거기엔 우선순위 조정이
+    아예 없었다 — 디스크 I/O가 NORMAL 우선순위 그대로라 대량 재색인 중
+    시스템 전체(탐색기 포함)가 행 걸리는 문제가 실사용 중 확인됨. 부모/
+    자식 둘 다 이 함수를 호출해 CPU+I/O+메모리를 한 번에 낮춘다.
+
+    ctypes+kernel32만 쓰고 새 의존성(psutil 등)을 들이지 않는다. 실패해도
+    (권한 문제, 이미 특수 모드인 경우 등) 치명적이지 않으므로 조용히
+    무시하고 계속 실행한다."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        PROCESS_MODE_BACKGROUND_BEGIN = 0x00100000
+        BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
+        kernel32 = ctypes.windll.kernel32
+        # [주의] restype/argtypes 명시 안 하면 64비트 HANDLE이 32비트로
+        # 잘려서 GetLastError=6(ERROR_INVALID_HANDLE)로 실패한다(실측 확인).
+        kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+        kernel32.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+        handle = kernel32.GetCurrentProcess()
+        if not kernel32.SetPriorityClass(handle, PROCESS_MODE_BACKGROUND_BEGIN):
+            # 백그라운드 모드 진입 실패 시(드묾) 최소한 CPU라도 양보하게 함.
+            kernel32.SetPriorityClass(handle, BELOW_NORMAL_PRIORITY_CLASS)
+    except Exception:
+        pass
+
+
 def is_frozen() -> bool:
     return getattr(sys, "frozen", False)
 
