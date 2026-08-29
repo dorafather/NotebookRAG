@@ -33,7 +33,7 @@ from pathlib import Path
 # 이 파일을 app_paths.py에 둔 이유: rag_serve.py/notebookrag_main.py 양쪽이
 # 이미 이 모듈을 임포트하고 있어서 순환 임포트 없이 공유 가능한 가장 낮은
 # 레벨의 공용 모듈이기 때문.
-NOTEBOOKRAG_VERSION = "1.2.1"
+NOTEBOOKRAG_VERSION = "1.2.2"
 GITHUB_URL = "https://github.com/dorafather/NotebookRAG"
 
 

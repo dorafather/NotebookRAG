@@ -129,6 +129,13 @@ DEGENERATE_SAMPLE_CHARS      = 200_000
 ABSOLUTE_MAX_CHARS = 3_000_000
 EMBED_MAX_RETRY   = 3
 TOP_K       = 4
+# [버그 수정 — 2026-08-29] scan_files()의 재귀 stat 순회 스로틀링 — 실사용
+# 감시 폴더(수천~수만 파일) 규모에서 이 순회가 쉼 없이 85초+ 동안 CPU/
+# 디스크를 붙잡고 있던 문제 참고(scan_files() 주석). 100개마다 10ms — 9000개
+# 기준 총 0.9초 남짓만 더 걸리는 대신, 매 100개 파일마다 다른 프로세스에게
+# 스케줄링 기회를 준다.
+SCAN_YIELD_EVERY  = int(os.getenv("RAG_SCAN_YIELD_EVERY", "100"))
+SCAN_YIELD_SEC    = float(os.getenv("RAG_SCAN_YIELD_SEC", "0.01"))
 SUPPORTED   = (".md", ".txt", ".pdf", ".docx", ".pptx", ".hwpx", ".hwp")
 # [HWP지원] .txt는 extract_text()가 이미 처리하고 있었는데(".txt", ".md" 같은
 # 분기) SUPPORTED에는 빠져 있어서 scan_files()의 확장자 필터를 통과하지 못해
@@ -344,13 +351,26 @@ def scan_files(docs_dirs: list[Path] | None = None) -> dict[str, tuple[int, int]
     out = {}
     skipped = 0
     any_dir_found = False
+    scanned = 0
     for label, root in DIR_LABELS.items():
         if not root.is_dir():
             print(f"경고: {root}/ 디렉터리가 없습니다 — 건너뜀")
             continue
         any_dir_found = True
         patterns = load_ignore_patterns(root)
-        for f in sorted(root.rglob("*")):
+        # [버그 수정 — 2026-08-29 실사용 중 발견] sorted(root.rglob("*"))는
+        # 정렬을 위해 제너레이터 전체를 먼저 리스트로 통째로 소비한다 — 즉
+        # 실사용 폴더(수천 개 파일)에서는 이 한 줄이 쉼 없는 통짜 재귀 stat
+        # 순회가 돼서, 30초 idle 재스캔 주기가 무색하게 CPU/디스크를 계속
+        # 붙잡고 있었다(실측: 한 회차에 85초+). out은 상대경로로 키를 잡는
+        # dict라 순서가 결과의 정확성에 영향을 주지 않으므로 정렬은 애초에
+        # 불필요했다 — 제너레이터를 그대로 순회하고, SCAN_YIELD_EVERY개
+        # 항목마다 짧게 쉬어 다른 프로세스(검색 API 등)에 CPU/디스크를
+        # 양보한다.
+        for f in root.rglob("*"):
+            scanned += 1
+            if scanned % SCAN_YIELD_EVERY == 0:
+                time.sleep(SCAN_YIELD_SEC)
             if f.is_file() and f.suffix.lower() in SUPPORTED:
                 sub = str(f.relative_to(root))
                 if patterns and is_ignored(sub, patterns):
