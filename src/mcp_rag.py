@@ -61,7 +61,14 @@ NATS_SERVER = os.getenv("NATS_SERVER", "nats://127.0.0.1:4222")
 # rag_serve.py와 이름·기본값이 반드시 일치해야 하는 암묵적 계약 (모듈 docstring 참고)
 RAG_HTTP_HOST = os.getenv("RAG_HTTP_HOST", "127.0.0.1")
 RAG_HTTP_PORT = int(os.getenv("RAG_HTTP_PORT", "8420"))
-TIMEOUT_SEC = 15
+# [버그 수정 — 2026-08-30] 15초는 콜드 임베딩 모델 로드(부팅/유휴 후 첫
+# 요청)가 조금만 느려져도(디스크 경합 등) 바로 넘겨버렸다 — 실제로 재부팅
+# 직후 검색이 13초 걸린 사례가 있었고, 예전엔(1.2.2 이전 우선순위 설정)
+# 최대 33초까지도 걸렸다(1.2.3에서 완화했지만 0으로 만든 건 아님). 넘기면
+# httpx.ReadTimeout이 예외 메시지 없이 잡혀서 "처리 실패: "(빈 문자열)로만
+# 보이고, 상위 클라이언트가 재시도하면서 서버에 중복 요청까지 쌓일 수 있다
+# (http_request() 참고). 여유를 넉넉히 둔다.
+TIMEOUT_SEC = 30
 
 TYPE_MAP = {"string": "string", "integer": "integer", "number": "number",
            "boolean": "boolean"}
