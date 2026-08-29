@@ -89,7 +89,8 @@ import rag_serve
 import indexer_serve
 import indexer_worker
 from rag_serve import RagRA, health
-from rag_indexing import EMBED_MODEL_PATH, get_embed_dim, open_existing_index, _make_dir_labels
+from rag_indexing import (EMBED_MODEL_PATH, get_embed_dim, open_existing_index,
+                          _make_dir_labels, CACHE_DB, _read_active_gen, _db_path_for_gen)
 from model_downloader import ModelDownloadState, download_model
 
 logging.basicConfig(
@@ -145,8 +146,27 @@ REFRESH_INTERVAL_SEC = int(os.getenv("IDLE_RESCAN_INTERVAL_SEC", "30"))
 async def _refresh_search_index_periodically(app: FastAPI) -> None:
     """[프로세스 분리] 색인 자식 프로세스가 DB에 새로 써넣은 내용을 검색이
     실제로 반영하도록, 검색용 RagRA.chunks/search를 주기적으로 다시 연다.
-    open_existing_index()는 "이미 있는 DB를 그냥 여는" 가벼운 동작이라
-    (재색인이 아님) 자주 불러도 부담이 적다.
+
+    [버그 수정 — 2026-08-29 실사용 중 발견] open_existing_index()를 "가벼운
+    동작"이라 여기고 매 주기 무조건 불렀는데, 코퍼스가 커진 지금(실측: 16만
+    1007개 벡터) 전혀 가볍지 않다는 게 실사용 중 확인됐다 — 이 재연결이
+    격리 상태에서는 0.5초 남짓인데, 실제 서비스 중에는 검색 한 번이
+    12~110초까지 튀고 그 동안 /health까지 응답을 못 했다(동시 폴링 테스트로
+    확인). 범인은 파이썬 연산 비용이 아니라 색인 자식 프로세스가 같은
+    WAL 모드 sqlite 파일에 쓰기 작업 중일 때 부모가 새 커넥션을 열려다
+    걸리는 프로세스 간 락 경합 — 재연결 자체를 필요할 때만 하도록 줄이면
+    경합이 벌어질 기회도 그만큼 줄어든다.
+
+    처음엔 활성 세대(a/b)가 바뀔 때만 다시 열면 될 줄 알았는데,
+    build_index()를 보면 force=False(평소 증분 갱신)일 때는 target_gen이
+    active_gen과 같다 — 즉 새 문서가 추가돼도 세대는 안 바뀌고 "같은" DB
+    파일에 그대로 쓰기만 한다(build_index 831~849행 부근 참고). 그래서
+    세대 비교만으론 새 문서 반영을 놓친다 — 대신 그 DB 파일 자체의 mtime을
+    본다: 아무것도 안 바뀌면(변경 없음 — 캐시 그대로 사용 분기) 파일에 아무
+    쓰기도 안 일어나 mtime이 그대로고, 증분이든 강제 재색인이든 실제로
+    쓰기가 일어나면 mtime이 바뀐다. os.stat() 한 번은 16만 벡터 재구성보다
+    비교할 수 없이 싸다 — 이 값이 바뀐 경우에만 무거운 open_existing_index()
+    를 부른다.
 
     [버그 수정 — 2026-08-21] 예전엔 이 상수를 indexer_serve.IDLE_RESCAN_
     INTERVAL_SEC로 참조했는데, 긴급 삭제안전장치 개정으로 indexer_serve.py를
@@ -161,11 +181,20 @@ async def _refresh_search_index_periodically(app: FastAPI) -> None:
     자식과 분리돼 있어 rag_indexing.DIR_LABELS(자식만 최신으로 유지)를
     직접 쓸 수 없기 때문."""
     indexer_port = int(os.getenv("INDEXER_PROC_PORT", "8421"))
+
+    def _active_db_mtime() -> float | None:
+        db_path = _db_path_for_gen(CACHE_DB, _read_active_gen(CACHE_DB))
+        return db_path.stat().st_mtime if db_path.exists() else None
+
+    last_mtime = _active_db_mtime()
     while True:
         await asyncio.sleep(REFRESH_INTERVAL_SEC)
         try:
-            chunks, search = await asyncio.to_thread(open_existing_index)
-            app.state.ra.chunks, app.state.ra.search = chunks, search
+            mtime = _active_db_mtime()
+            if mtime != last_mtime:
+                chunks, search = await asyncio.to_thread(open_existing_index)
+                app.state.ra.chunks, app.state.ra.search = chunks, search
+                last_mtime = mtime
         except Exception as exc:
             log.warning("검색 인덱스 갱신 실패(다음 주기에 재시도): %s", exc)
 
