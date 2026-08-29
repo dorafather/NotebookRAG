@@ -33,30 +33,38 @@ from pathlib import Path
 # 이 파일을 app_paths.py에 둔 이유: rag_serve.py/notebookrag_main.py 양쪽이
 # 이미 이 모듈을 임포트하고 있어서 순환 임포트 없이 공유 가능한 가장 낮은
 # 레벨의 공용 모듈이기 때문.
-NOTEBOOKRAG_VERSION = "1.2.2"
+NOTEBOOKRAG_VERSION = "1.2.3"
 GITHUB_URL = "https://github.com/dorafather/NotebookRAG"
 
 
 def lower_process_priority() -> None:
-    """[실사용 발견 — 2026-08-28] 이 프로세스를 Windows "백그라운드 처리
-    모드"(PROCESS_MODE_BACKGROUND_BEGIN)로 낮춘다 — CPU뿐 아니라 디스크
-    I/O·메모리 우선순위까지 함께 낮아진다.
+    """[실사용 발견 — 2026-08-29 BACKGROUND_BEGIN 제거] CPU 우선순위만
+    낮춘다(BELOW_NORMAL_PRIORITY_CLASS) — 디스크 I/O·메모리 우선순위는
+    더 이상 안 건드린다.
 
-    예전엔 notebookrag_main.py(부모)만 BELOW_NORMAL_PRIORITY_CLASS로 CPU
-    우선순위만 낮췄는데, 실제 대량 파일 스캔/콘텐츠해시/텍스트추출을 하는
-    쪽은 색인 자식 프로세스(indexer_worker.py)이고 거기엔 우선순위 조정이
-    아예 없었다 — 디스크 I/O가 NORMAL 우선순위 그대로라 대량 재색인 중
-    시스템 전체(탐색기 포함)가 행 걸리는 문제가 실사용 중 확인됨. 부모/
-    자식 둘 다 이 함수를 호출해 CPU+I/O+메모리를 한 번에 낮춘다.
+    한때(2026-08-28~1.2.2) PROCESS_MODE_BACKGROUND_BEGIN(CPU+I/O+메모리를
+    한 번에 낮추는 모드)을 썼는데, 그 부작용으로 Windows가 이 프로세스의
+    Working Set을 공격적으로 트림해서(605MB 임베딩 모델이 mmap 상주 33MB
+    까지 밀려남), 몇 분 이상 유휴 후 첫 검색마다 그 페이지를 디스크에서
+    다시 읽어와야 했다 — 게다가 그 디스크 읽기 자체도 I/O 우선순위가
+    낮아서 OneDrive/백신 등 다른 프로그램이 디스크를 쓰고 있으면 가장
+    먼저, 가장 크게 굶는 구조였다(실측: 콜드 로드 2초→24~33초).
+
+    BACKGROUND_BEGIN을 넣은 원래 이유(색인 자식의 무제한 디스크 I/O로
+    대량 재색인 중 탐색기까지 행 걸림)는 그 사이 다른 수정으로 해결됐다
+    — scan_files()가 100개 파일마다 스로틀링돼(1.2.2) 더 이상 디스크를
+    쉼 없이 독점하지 않고, 검색용 인덱스 재연결도 실제로 바뀐 경우에만
+    하도록 줄었다(1.2.1). 그 원인이 없어졌으니 메모리까지 희생하는 더
+    강한 모드를 계속 쓸 근거도 없다 — CPU 우선순위만 낮추는 것으로
+    되돌린다(격리 테스트로 확인: 콜드 로드 6초대, 유휴 2분 후에도 재검색
+    2초대 유지, Working Set 트림 없음).
 
     ctypes+kernel32만 쓰고 새 의존성(psutil 등)을 들이지 않는다. 실패해도
-    (권한 문제, 이미 특수 모드인 경우 등) 치명적이지 않으므로 조용히
-    무시하고 계속 실행한다."""
+    (권한 문제 등) 치명적이지 않으므로 조용히 무시하고 계속 실행한다."""
     if sys.platform != "win32":
         return
     try:
         import ctypes
-        PROCESS_MODE_BACKGROUND_BEGIN = 0x00100000
         BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
         kernel32 = ctypes.windll.kernel32
         # [주의] restype/argtypes 명시 안 하면 64비트 HANDLE이 32비트로
@@ -64,9 +72,7 @@ def lower_process_priority() -> None:
         kernel32.GetCurrentProcess.restype = ctypes.c_void_p
         kernel32.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
         handle = kernel32.GetCurrentProcess()
-        if not kernel32.SetPriorityClass(handle, PROCESS_MODE_BACKGROUND_BEGIN):
-            # 백그라운드 모드 진입 실패 시(드묾) 최소한 CPU라도 양보하게 함.
-            kernel32.SetPriorityClass(handle, BELOW_NORMAL_PRIORITY_CLASS)
+        kernel32.SetPriorityClass(handle, BELOW_NORMAL_PRIORITY_CLASS)
     except Exception:
         pass
 
